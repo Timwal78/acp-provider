@@ -40,14 +40,30 @@ echo "[startup] Wrote keyring/file.key"
 # Point ACP_CONFIG_DIR at our config dir
 export ACP_CONFIG_DIR=/opt/acp-config
 
+# The ACP CLI authenticates via JWT tokens in env vars, NOT config files.
+# These must be set for `acp agent whoami` to work.
+if [ -z "$ACP_ACCESS_TOKEN" ]; then
+    echo "[startup] ERROR: ACP_ACCESS_TOKEN env var not set"
+    exit 1
+fi
+if [ -z "$ACP_REFRESH_TOKEN" ]; then
+    echo "[startup] ERROR: ACP_REFRESH_TOKEN env var not set"
+    exit 1
+fi
+if [ -z "$ACP_AGENT_WALLET_ADDRESS" ]; then
+    echo "[startup] ERROR: ACP_AGENT_WALLET_ADDRESS env var not set"
+    exit 1
+fi
+echo "[startup] Auth tokens present (access=${#ACP_ACCESS_TOKEN} chars, refresh=${#ACP_REFRESH_TOKEN} chars)"
+
 # Verify ACP is installed and working
 echo "[startup] Verifying ACP CLI..."
 acp --version || (echo "[startup] Installing ACP CLI..." && npm i -g @virtuals-protocol/acp-cli)
 acp --version
 
 echo "[startup] Verifying agent identity..."
-acp agent whoami --json | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'Agent: {d[\"name\"]} ({d[\"id\"]})')" 2>&1 || {
-    echo "[startup] ERROR: Could not verify agent identity. Check credentials."
+acp agent whoami --json 2>&1 | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'Agent: {d[\"name\"]} ({d[\"id\"]})')" 2>&1 || {
+    echo "[startup] ERROR: Could not verify agent identity. Check ACP_ACCESS_TOKEN and ACP_REFRESH_TOKEN."
     exit 1
 }
 
