@@ -60,31 +60,19 @@ echo "[startup] Auth tokens present (access=${#ACP_ACCESS_TOKEN} chars, refresh=
 # The access token expires every hour, so on Render restarts it will almost always be stale.
 # The refresh token lasts longer. We call the ACP API directly to get a fresh access token.
 echo "[startup] Refreshing access token..."
-REFRESH_RESULT=$(python3 -c "
-import urllib.request, json, os
-rt = os.environ.get('ACP_REFRESH_TOKEN', '')
-url = 'https://api.acp.virtuals.io/auth/cli/refresh'
-data = json.dumps({'refreshToken': rt}).encode()
-req = urllib.request.Request(url, data=data, headers={'Content-Type': 'application/json'})
-try:
-    resp = urllib.request.urlopen(req, timeout=10)
-    result = json.loads(resp.read())
-    new_at = result.get('data', {}).get('token', '')
-    new_rt = result.get('data', {}).get('refreshToken', '')
-    if new_at:
-        # Write new tokens to stdout for the shell to capture
-        print(json.dumps({'access_token': new_at, 'refresh_token': new_rt}))
-    else:
-        print(json.dumps({'error': 'no token in response'}))
-except urllib.error.HTTPError as e:
-    print(json.dumps({'error': f'HTTP {e.code}: {e.read().decode()[:100]}'}))
-except Exception as e:
-    print(json.dumps({'error': str(e)}))
-" 2>&1)
+# Use curl instead of Python urllib — Cloudflare blocks Python's urllib on Render IPs
+REFRESH_RESULT=$(curl -s --max-time 10 -X POST "https://api.acp.virtuals.io/auth/cli/refresh" \
+    -H "Content-Type: application/json" \
+    -d "{\"refreshToken\": \"$ACP_REFRESH_TOKEN\"}" 2>&1)
 
-if echo "$REFRESH_RESULT" | python3 -c "import sys,json; d=json.load(sys.stdin); assert 'access_token' in d" 2>/dev/null; then
-    export ACP_ACCESS_TOKEN=$(echo "$REFRESH_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
-    NEW_RT=$(echo "$REFRESH_RESULT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('refresh_token',''))")
+# Parse the JSON response with Python (just parsing, no network call)
+if echo "$REFRESH_RESULT" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+assert 'data' in d and 'token' in d['data']
+" 2>/dev/null; then
+    export ACP_ACCESS_TOKEN=$(echo "$REFRESH_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['token'])")
+    NEW_RT=$(echo "$REFRESH_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['data'].get('refreshToken',''))")
     if [ -n "$NEW_RT" ]; then
         export ACP_REFRESH_TOKEN="$NEW_RT"
     fi
