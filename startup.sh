@@ -61,20 +61,39 @@ ACP_ACCESS_TOKEN=$(echo -n "$ACP_ACCESS_TOKEN" | tr -d '[:space:]')
 ACP_REFRESH_TOKEN=$(echo -n "$ACP_REFRESH_TOKEN" | tr -d '[:space:]')
 echo "[startup] Tokens trimmed (access=${#ACP_ACCESS_TOKEN} chars, refresh=${#ACP_REFRESH_TOKEN} chars)"
 
-# Write tokens to the ACP CLI keyring using `acp configure --token`.
-# This stores them in the OS keyring/file keyring so the CLI can auto-refresh
-# using its internal Node.js fetch() (NOT blocked by Cloudflare like Python urllib/curl).
-# The CLI's resolveToken() will find the expired access token, call refreshCliToken()
-# with the refresh token, get a new access token + new refresh token, and persist both.
-echo "[startup] Configuring ACP CLI with tokens..."
-acp configure --token "$ACP_ACCESS_TOKEN" --refresh-token "$ACP_REFRESH_TOKEN" --wallet "$ACP_AGENT_WALLET_ADDRESS" 2>&1 || {
-    echo "[startup] WARNING: acp configure failed — tokens may be invalid"
-}
-
-# Verify ACP is installed and working
+# Write tokens directly to the file-based keyring using a Node.js script.
+# This bypasses the native Linux keyring backend which rejects wallet addresses
+# as account names ("invalid characters" error).
+# The CLI then reads tokens from the file keyring and auto-refreshes via Node fetch.
 echo "[startup] Verifying ACP CLI..."
 acp --version || (echo "[startup] Installing ACP CLI..." && npm i -g @virtuals-protocol/acp-cli)
 acp --version
+
+echo "[startup] Writing tokens to file keyring..."
+# Set XDG paths so the file keyring finds file.key and writes secrets.json in our config dir
+export XDG_CONFIG_HOME=/opt/acp-config
+export XDG_DATA_HOME=/opt/acp-config
+
+# Find the cross-keychain module in the global ACP CLI install
+KEYRING_MODULE=$(node -e "try { console.log(require.resolve('cross-keychain/dist/index.js', {paths: [require.resolve('@virtuals-protocol/acp-cli/package.json')]})); } catch(e) { console.log(''); }" 2>/dev/null)
+
+if [ -n "$KEYRING_MODULE" ]; then
+    node -e "
+const { setPassword, useBackend } = require('$KEYRING_MODULE');
+async function main() {
+    await useBackend('file');
+    const w = '${ACP_AGENT_WALLET_ADDRESS}'.toLowerCase();
+    await setPassword('acp-auth', 'access-token-' + w, '${ACP_ACCESS_TOKEN}');
+    await setPassword('acp-auth', 'refresh-token-' + w, '${ACP_REFRESH_TOKEN}');
+    console.log('[startup] Tokens written to file keyring');
+}
+main().catch(e => { console.error('[startup] WARNING: Failed to write keyring:', e.message); });
+    " 2>&1 || {
+        echo "[startup] WARNING: Could not write tokens to file keyring"
+    }
+else
+    echo "[startup] WARNING: cross-keychain module not found, skipping keyring write"
+fi
 
 # The CLI auto-refreshes the access token internally using Node fetch (not blocked by Cloudflare)
 echo "[startup] Verifying agent identity (CLI will auto-refresh if needed)..."
