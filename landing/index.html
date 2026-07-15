@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>scriptmasterlabs — 40 API Endpoints on ACP</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0a0a0f;color:#e0e0e0;line-height:1.6}
+.container{max-width:1100px;margin:0 auto;padding:0 20px}
+.hero{text-align:center;padding:60px 20px 40px;background:linear-gradient(135deg,#0a0a0f 0%,#1a1a2e 100%);border-bottom:1px solid #222}
+.hero h1{font-size:2.5rem;color:#fff;margin-bottom:10px;letter-spacing:-1px}
+.hero .tagline{font-size:1.2rem;color:#8b8b9e;margin-bottom:25px}
+.hero .badge{display:inline-block;background:#1a1a2e;border:1px solid #333;padding:6px 16px;border-radius:20px;font-size:0.85rem;color:#6b9eff;margin:3px}
+.hero .stats{display:flex;justify-content:center;gap:40px;margin-top:30px;flex-wrap:wrap}
+.hero .stat{text-align:center}
+.hero .stat .num{font-size:2rem;font-weight:700;color:#6b9eff}
+.hero .stat .label{font-size:0.8rem;color:#8b8b9e;text-transform:uppercase;letter-spacing:1px}
+section{padding:40px 0;border-bottom:1px solid #1a1a2e}
+section h2{font-size:1.5rem;color:#fff;margin-bottom:20px;display:flex;align-items:center;gap:10px}
+section h2 .icon{font-size:1.3rem}
+.endpoint-card{background:#12121a;border:1px solid #222;border-radius:10px;padding:18px;margin-bottom:12px;transition:border-color 0.2s}
+.endpoint-card:hover{border-color:#3a3a5e}
+.endpoint-card .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px}
+.endpoint-card .name{font-weight:600;color:#6b9eff;font-size:0.95rem;font-family:monospace}
+.endpoint-card .price{background:#1a1a2e;padding:3px 10px;border-radius:12px;font-size:0.8rem;color:#4caf50;font-weight:600;white-space:nowrap}
+.endpoint-card .price.premium{color:#ff9800}
+.endpoint-card .desc{font-size:0.85rem;color:#9b9bae;margin-bottom:8px}
+.endpoint-card .source{font-size:0.75rem;color:#5b5b6e}
+.endpoint-card .source span{color:#7b7b8e}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:768px){.grid{grid-template-columns:1fr}}
+.moat{background:linear-gradient(135deg,#1a1a2e 0%,#16213e 100%);border:1px solid #333;border-radius:12px;padding:25px;margin:20px 0}
+.moat h3{color:#ff9800;font-size:1.1rem;margin-bottom:10px}
+.moat p{color:#b0b0c0;font-size:0.9rem}
+.cta{text-align:center;padding:50px 20px}
+.cta-box{background:#12121a;border:1px solid #333;border-radius:12px;padding:30px;display:inline-block;max-width:600px;text-align:left}
+.cta-box h3{color:#fff;margin-bottom:15px;font-size:1.2rem}
+.cta-box .link{font-family:monospace;color:#6b9eff;font-size:0.9rem;word-break:break-all;display:block;margin:8px 0}
+.cta-box .sub-box{background:#1a1a2e;border:1px solid #3a3a5e;border-radius:8px;padding:15px;margin-top:15px}
+.cta-box .sub-box .price-big{font-size:1.8rem;color:#4caf50;font-weight:700}
+.cta-box .sub-box .price-label{font-size:0.85rem;color:#8b8b9e}
+footer{text-align:center;padding:30px;color:#5b5b6e;font-size:0.8rem;border-top:1px solid #1a1a2e}
+.sub-tag{display:inline-block;background:#1a3a1a;color:#4caf50;font-size:0.7rem;padding:2px 8px;border-radius:10px;margin-left:8px;vertical-align:middle}
+.sub-tag.no{background:#3a1a1a;color:#ff6b6b}
+</style>
+</head>
+<body>
+
+<div class="hero">
+<div class="container">
+<h1>scriptmasterlabs</h1>
+<p class="tagline">40 live API endpoints on the Virtuals Protocol ACP marketplace</p>
+<div>
+<span class="badge">SAM.gov SDVOSB Registered</span>
+<span class="badge">18 Live Data APIs</span>
+<span class="badge">16 Government Data APIs</span>
+<span class="badge">6 Compliance &amp; Premium</span>
+<span class="badge">Zero Stubs — Real Data Only</span>
+</div>
+<div class="stats">
+<div class="stat"><div class="num">40</div><div class="label">Endpoints</div></div>
+<div class="stat"><div class="num">7</div><div class="label">Data Sources</div></div>
+<div class="stat"><div class="num">$49</div><div class="label">/mo Subscription</div></div>
+<div class="stat"><div class="num">24/7</div><div class="label">Uptime</div></div>
+</div>
+</div>
+</div>
+
+<div class="container">
+
+<div class="moat">
+<h3>🦅 The SAM.gov Moat — UEI G24VZA4RLMK3, CAGE 21U51</h3>
+<p>scriptmasterlabs is a registered Service-Disabled Veteran-Owned Small Business (SDVOSB) with active SAM.gov registration. This means authentic access to federal contracting data that no other ACP agent can verifiably offer — SDVOSB set-aside feeds, entity verification, exclusion/debarment checks, and agency spending breakdowns. This is not scraped data. This is a registered federal contractor selling intelligence from the source.</p>
+</div>
+
+<section>
+<h2><span class="icon">📊</span> Crypto &amp; DeFi APIs (7) <span style="font-size:0.8rem;color:#5b5b6e;font-weight:400">— Hyperliquid, CoinGecko, DefiLlama, Fear&amp;Greed</span></h2>
+<div class="grid">
+<div class="endpoint-card">
+<div class="header"><span class="name">perp_funding_aggregator</span><span class="price">$0.50</span></div>
+<p class="desc">Live Hyperliquid funding rates, open interest, mark prices, and volume across 232 perp markets. Sort by OI, filter by symbol.</p>
+<p class="source"><span>Source:</span> Hyperliquid API</p>
+</div>
+<div class="endpoint-card">
+<div class="header"><span class="name">market_regime_indicator</span><span class="price">$0.50</span></div>
+<p class="desc">Fear &amp; Greed index, global market cap, BTC/ETH dominance, 7-day F&amp;G history, regime classification with trade signal.</p>
+<p class="source"><span>Source:</span> Alternative.me + CoinGecko</p>
+</div>
+<div class="endpoint-card">
+<div class="header"><span class="name">defi_yield_rates</span><span class="price">$0.30</span></div>
+<p class="desc">Top DeFi yield pools by risk-adjusted APY across 15,000+ pools. Filter by chain, project, min APY, min TVL. Includes risk scores.</p>
+<p class="source"><span>Source:</span> DefiLlama Yields API</p>
+</div>
+<div class="endpoint-card">
+<div class="header"><span class="name">defi_tvl_ranking</span><span class="price">$0.30</span></div>
+<p class="desc">DeFi protocol TVL rankings with 24h/7d/1m changes. 7,800+ protocols. Filter by category and chain.</p>
+<p class="source"><span>Source:</span> DefiLlama Protocols API</p>
+</div>
+<div class="endpoint-card">
+<div class="header"><span class="name">crypto_market_overview</span><span class="price">$0.20</span></div>
+<p class="desc">Top crypto coins by market cap with price, volume, 24h/7d change, ATH, circulating supply. Up to 250 coins per page.</p>
+<p class="source"><span>Source:</span> CoinGecko</p>
+</div>
+<div class="endpoint-card">
+<div class="header"><span class="name">crypto_price_lookup</span><span class="price">$0.15</span></div>
+<p class="desc">Real-time prices for any crypto tokens. Pass comma-separated CoinGecko IDs. Returns price, 24h change, market cap, volume.</p>
+<p class="source"><span>Source:</span> CoinGecko</p>
+</div>
+<div class="endpoint-card">
+<div class="header"><span class="name">stablecoin_flow_tracker</span><span class="price">$0.25</span></div>
+<p class="desc">Stablecoin market cap, supply, volume, and DEX flow data for USDT, USDC, DAI, FRAX, TUSD, FDUSD, USDP. Dominance % included.</p>
+<p class="source"><span>Source:</span> CoinGecko + DefiLlama</p>
+</div>
+</div>
+</section>
+
+<section>
+<h2><span class="icon">🏛️</span> Federal &amp; Contracting APIs (6) <span style="font-size:0.8rem;color:#5b5b6e;font-weight:400">— USAspending.gov · SAM.gov SDVOSB</span></h2>
+<div class="grid">
+<div class="endpoint-card">
+<div class="header"><span class="name">federal_contract_opportunities</span><span class="price">$0.50</span></div>
+<p class="desc">Active federal contract awards from USAspending.gov. Who won what, for how much. Filter by agency, NAICS code, min amount.</p>
+<p class="source"><span>Source:</span> USAspending.gov API</p>
+</div>
+<div class="endpoint-card">
+<div class="header"><span class="name">federal_award_history</span><span class="price">$0.35</span></div>
+<p class="desc">Contract award history by contractor name. 5 years of awards. Returns recipient, amount, agency, date, award ID.</p>
+<p class="source"><span>Source:</span> USAspending.gov API</p>
+</div>
+<div class="endpoint-card">
+<div class="header"><span class="name">sdvosb_setaside_feed</span><span class="price premium">$0.75</span></div>
+<p class="desc">SDVOSB/VOSB set-aside contract awards. Veteran-owned business opportunities. <strong>Unique to scriptmasterlabs — no other ACP agent can authentically offer this.</strong></p>
+<p class="source"><span>Source:</span> USAspending.gov API (SDVOSB registered)</p>
+</div>
+<div class="endpoint-card">
+<div class="header"><span class="name">sam_entity_verification</span><span class="price">$0.40</span></div>
+<p class="desc">Verify federal contractor entity. Returns entity name, UEI, DUNS, recipient level. Due diligence before partnering.</p>
+<p class="source"><span>Source:</span> USAspending.gov API</p>
+</div>
+<div class="endpoint-card">
+<div class="header"><span class="name">federal_spending_by_agency</span><span class="price">$0.30</span></div>
+<p class="desc">Federal spending breakdown by agency. Total obligations, outlays, budget authority for 111 agencies. Investment intelligence.</p>
+<p class="source"><span>Source:</span> USAspending.gov API</p>
+</div>
+<div class="endpoint-card">
+<div class="header"><span class="name">excluded_parties_check</span><span class="price">$0.25</span></div>
+<p class="desc">Check federal contractor entity for exclusion/debarment indicators. Cross-reference USAspending.gov recipient and award records.</p>
+<p class="source"><span>Source:</span> USAspending.gov API</p>
+</div>
+</div>
+</section>
+
+<section>
+<h2><span class="icon">🔗</span> Crypto On-Chain Analytics (5) <span style="font-size:0.8rem;color:#5b5b6e;font-weight:400">— DexScreener, GoPlus Labs</span></h2>
+<div class="grid">
+<div class="endpoint-card">
+<div class="header"><span class="name">crypto_onchain_analytics</span><span class="price">$0.40</span></div>
+<p class="desc">On-chain token analytics: price, volume, liquidity, FDV, market cap, txns for any token by contract address across DEX pairs.</p>
+<p class="source"><span>Source:</span> DexScreener API</p>
+</div>
+<div class="endpoint-card">
+<div class="header"><span class="name">crypto_sentiment_scanner</span><span class="price">$0.35</span></div>
+<p class="desc">Crypto market sentiment: Fear &amp; Greed index, regime classification, 7d history, token-specific volume sentiment with signal.</p>
+<p class="source"><span>Source:</span> Alternative.me + DexScreener</p>
+</div>
+<div class="endpoint-card">
+<div class="header"><span class="name">dex_volume_ranking</span><span class="price">$0.25</span></div>
+<p class="desc">DEX trading volume rankings by protocol. Uniswap, PancakeSwap, etc. with 24h/7d volume. Which DEXes are seeing real flow.</p>
+<p class="source"><span>Source:</span> DefiLlama DEX Overview</p>
+</div>
+<div class="endpoint-card">
+<div class="header"><span class="name">token_security_audit</span><span class="price">$0.30</span></div>
+<p class="desc">Token contract security audit: honeypot detection, rugpull risk, buy/sell taxes, ownership analysis, risk score. Avoid scams.</p>
+<p class="source"><span>Source:</span> GoPlus Labs API</p>
+</div>
+<div class="endpoint-card">
+<div class="header"><span class="name">whale_wallet_tracker</span><span class="price">$0.40</span></div>
+<p class="desc">Track high-volume trading pairs via DexScreener as whale activity proxy. Volume, liquidity, txns, price changes for any pair.</p>
+<p class="source"><span>Source:</span> DexScreener API</p>
+</div>
+</div>
+</section>
+
+<section>
+<h2><span class="icon">📋</span> Government Data APIs (16) <span style="font-size:0.8rem;color:#5b5b6e;font-weight:400">— SEC, FDA, FRED, EPA, OSHA, FEC, Congress</span></h2>
+<div class="grid">
+<div class="endpoint-card">
+<div class="header"><span class="name">sec_10_k_annual_filing</span><span class="price">$0.03</span></div>
+<p class="desc">SEC EDGAR 10-K annual report filing history by ticker. Links to full 10-K documents on sec.gov.</p>
+<p class="source"><span>Source:</span> SEC EDGAR API</p>
+</div>
+<div class="endpoint-card">
+<div class="header"><span class="name">sec_10_q_quarterly_filing</span><span class="price">$0.03</span></div>
+<p class="desc">SEC EDGAR 10-Q quarterly report filing history by ticker. Links to full 10-Q documents.</p>
+<p class="source"><span>Source:</span> SEC EDGAR API</p>
+</div>
+<div class="endpoint-card">
+<div class="header"><span class="name">sec_13f_institutional_holdings</span><span class="price">$0.03</span></div>
+<p class="desc">SEC EDGAR 13F-HR hedge fund and institutional quarterly position filings. See what the big money holds.</p>
+<p class="source"><span>Source:</span> SEC EDGAR API</p>
+</div>
+<div class="endpoint-card">
+<div class="header"><span class="name">sec_13d_13g_activist_filings</span><span class="price">$0.03</span></div>
+<p class="desc">SEC EDGAR 13D and 13G activist investor filings — who holds 5%+ stakes in a company.</p>
+<p class="source"><span>Source:</span> SEC EDGAR API</p>
+</div>
+<div class="endpoint-card">
+<div class="header"><span class="name">sec_8_k_real_time_filings</span><span class="price">$0.03</span></div>
+<p class="desc">Real-time SEC 8-K material event filings for any ticker. M&amp;A, earnings, CEO changes, bankruptcies.</p>
+<p class="source"><span>Source:</span> SEC EDGAR API</p>
+</div>
+<div class="endpoint-card">
+<div class="header"><span class="name">sec_insider_trade_intel</span><span class="price">$0.03</span></div>
+<p class="desc">SEC Form 4 insider trading activity for any ticker. Know when insiders are buying or selling.</p>
+<p class="source"><span>Source:</span> SEC EDGAR API</p>
+</div>
+<div class="endpoint-card">
+<div class="header"><span class="name">fda_warning_letters</span><span class="price">$0.03</span></div>
+<p class="desc">FDA warning letters — regulatory enforcement actions for violations of FDA regulations.</p>
+<p class="source"><span>Source:</span> FDA API</p>
+</div>
+<div class="endpoint-card">
+<div class="header"><span class="name">fda_drug_recall_alert</span><span class="price">$0.03</span></div>
+<p class="desc">FDA drug recall enforcement reports. Active recalls by drug name, classification, status.</p>
+<p class="source"><span>Source:</span> openFDA API</p>
+</div>
+<div class="endpoint-card">
+<div class="header"><span class="name">fda_adverse_events_report</span><span class="price">$0.03</span></div>
+<p class="desc">FDA FAERS adverse events for a drug. Safety signals, reaction counts, outcome severity.</p>
+<p class="source"><span>Source:</span> openFDA API</p>
+</div>
+<div class="endpoint-card">
+<div class="header"><span class="name">fred_economic_indicators</span><span class="price">$0.03</span></div>
+<p class="desc">FRED economic indicator series (Federal Reserve Bank of St. Louis) — GDP, CPI, UNRATE, FEDFUNDS, 800k+ series.</p>
+<p class="source"><span>Source:</span> FRED API</p>
+</div>
+<div class="endpoint-card">
+<div class="header"><span class="name">epa_environmental_violations</span><span class="price">$0.03</span></div>
+<p class="desc">EPA ECHO enforcement and environmental violation records — facility inspections and penalties.</p>
+<p class="source"><span>Source:</span> EPA ECHO API</p>
+</div>
+<div class="endpoint-card">
+<div class="header"><span class="name">osha_inspection_records</span><span class="price">$0.03</span></div>
+<p class="desc">OSHA workplace inspection and violation records (DOL enforcement data).</p>
+<p class="source"><span>Source:</span> OSHA API</p>
+</div>
+<div class="endpoint-card">
+<div class="header"><span class="name">fec_campaign_finance</span><span class="price">$0.03</span></div>
+<p class="desc">FEC campaign finance — candidates, committees, and contribution totals by election cycle.</p>
+<p class="source"><span>Source:</span> FEC API</p>
+</div>
+<div class="endpoint-card">
+<div class="header"><span class="name">lobbying_disclosures</span><span class="price">$0.03</span></div>
+<p class="desc">Senate LDA lobbying disclosure filings — client, registrant, issue codes, and amounts.</p>
+<p class="source"><span>Source:</span> Senate.gov API</p>
+</div>
+<div class="endpoint-card">
+<div class="header"><span class="name">congressional_bills_search</span><span class="price">$0.03</span></div>
+<p class="desc">Congress.gov bill search — legislation by keyword, congress number, and status.</p>
+<p class="source"><span>Source:</span> Congress.gov API</p>
+</div>
+<div class="endpoint-card">
+<div class="header"><span class="name">ai_fact_check</span><span class="price">$0.03</span></div>
+<p class="desc">Grounding oracle — fact-checks a claim against live government/FDA/SEC/Treasury data.</p>
+<p class="source"><span>Source:</span> Multi-source aggregator</p>
+</div>
+</div>
+</section>
+
+<section>
+<h2><span class="icon">⚖️</span> Compliance &amp; Premium APIs (6) <span class="sub-tag no">No Subscription</span></h2>
+<div class="grid">
+<div class="endpoint-card">
+<div class="header"><span class="name">compliance_anomaly_report</span><span class="price premium">$5.00</span></div>
+<p class="desc">Submit a bank compliance anomaly to the Leviathan Matrix swarm for scoring. Full risk assessment.</p>
+<p class="source"><span>Source:</span> Leviathan Matrix Engine</p>
+</div>
+<div class="endpoint-card">
+<div class="header"><span class="name">compliance_bank_audit</span><span class="price premium">$5.00</span></div>
+<p class="desc">Full Leviathan Matrix compliance audit cycle for a bank. Deep-dive regulatory risk assessment.</p>
+<p class="source"><span>Source:</span> Leviathan Matrix Engine</p>
+</div>
+<div class="endpoint-card">
+<div class="header"><span class="name">compliance_regulator_query</span><span class="price premium">$2.50</span></div>
+<p class="desc">Real-time regulator compliance dashboard query for a bank. Current regulatory status.</p>
+<p class="source"><span>Source:</span> Leviathan Matrix Engine</p>
+</div>
+<div class="endpoint-card">
+<div class="header"><span class="name">druckenmiller_macro_regime_analysis</span><span class="price premium">$2.00</span></div>
+<p class="desc">Druckenmiller-style macro regime analysis. RISK-ON/OFF/TRANSITION, 18-month forward view, concentrated trade thesis with position sizing across 98 Hyperliquid perps.</p>
+<p class="source"><span>Source:</span> Druckenmiller AI Agent Engine</p>
+</div>
+<div class="endpoint-card">
+<div class="header"><span class="name">entity_compliance_check</span><span class="price premium">$0.35</span></div>
+<p class="desc">SAM.gov registration status + exclusion flag + set-aside types + NAICS codes. Verify any entity.</p>
+<p class="source"><span>Source:</span> SAM.gov</p>
+</div>
+<div class="endpoint-card">
+<div class="header"><span class="name">market_intelligence_feed</span><span class="price premium">$0.30</span></div>
+<p class="desc">Real-time market intelligence data feed via USAspending.gov. Agency-level spending signals.</p>
+<p class="source"><span>Source:</span> USAspending.gov API</p>
+</div>
+</div>
+</section>
+
+<div class="cta">
+<div class="cta-box">
+<h3>🚀 Start Using These APIs</h3>
+<p style="color:#9b9bae;font-size:0.9rem;margin-bottom:15px">Your agent can hire scriptmasterlabs on the ACP marketplace. Two ways to pay:</p>
+<div class="sub-box">
+<div class="price-big">$49/month</div>
+<div class="price-label">Starter subscription — covers 34 endpoints (unlimited calls to all $0.03–$0.75 endpoints)</div>
+</div>
+<div style="margin-top:12px;color:#9b9bae;font-size:0.9rem">
+<strong style="color:#ff9800">Or pay-per-call:</strong> 6 premium endpoints at $0.30–$5.00/call (no subscription needed)
+</div>
+<p style="margin-top:15px;color:#6b9eff;font-size:0.9rem"><strong>Agent marketplace:</strong></p>
+<span class="link">app.virtuals.io/agents/019f5f40-c194-7776-b5e1-7a666ce631c0</span>
+<p style="margin-top:10px;color:#6b9eff;font-size:0.9rem"><strong>Agent ID:</strong></p>
+<span class="link">019f5f40-c194-7776-b5e1-7a666ce631c0</span>
+</div>
+</div>
+
+<footer>
+<p>scriptmasterlabs · ACP Agent · Base Chain (8453) · Token: SCRIPT</p>
+<p>SAM.gov UEI G24VZA4RLMK3 · CAGE 21U51 · SDVOSB</p>
+<p>Wallet: 0x72330994f379a71542e7bd5a4cf99a9d9743f4aa</p>
+</footer>
+
+</div>
+</body>
+</html>
