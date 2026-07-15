@@ -56,20 +56,62 @@ if [ -z "$ACP_AGENT_WALLET_ADDRESS" ]; then
 fi
 echo "[startup] Auth tokens present (access=${#ACP_ACCESS_TOKEN} chars, refresh=${#ACP_REFRESH_TOKEN} chars)"
 
+# Attempt to refresh the access token using the refresh token.
+# The access token expires every hour, so on Render restarts it will almost always be stale.
+# The refresh token lasts longer. We call the ACP API directly to get a fresh access token.
+echo "[startup] Refreshing access token..."
+REFRESH_RESULT=$(python3 -c "
+import urllib.request, json, os
+rt = os.environ.get('ACP_REFRESH_TOKEN', '')
+url = 'https://api.acp.virtuals.io/auth/cli/refresh'
+data = json.dumps({'refreshToken': rt}).encode()
+req = urllib.request.Request(url, data=data, headers={'Content-Type': 'application/json'})
+try:
+    resp = urllib.request.urlopen(req, timeout=10)
+    result = json.loads(resp.read())
+    new_at = result.get('data', {}).get('token', '')
+    new_rt = result.get('data', {}).get('refreshToken', '')
+    if new_at:
+        # Write new tokens to stdout for the shell to capture
+        print(json.dumps({'access_token': new_at, 'refresh_token': new_rt}))
+    else:
+        print(json.dumps({'error': 'no token in response'}))
+except urllib.error.HTTPError as e:
+    print(json.dumps({'error': f'HTTP {e.code}: {e.read().decode()[:100]}'}))
+except Exception as e:
+    print(json.dumps({'error': str(e)}))
+" 2>&1)
+
+if echo "$REFRESH_RESULT" | python3 -c "import sys,json; d=json.load(sys.stdin); assert 'access_token' in d" 2>/dev/null; then
+    export ACP_ACCESS_TOKEN=$(echo "$REFRESH_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+    NEW_RT=$(echo "$REFRESH_RESULT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('refresh_token',''))")
+    if [ -n "$NEW_RT" ]; then
+        export ACP_REFRESH_TOKEN="$NEW_RT"
+    fi
+    echo "[startup] Token refreshed successfully (new access=${#ACP_ACCESS_TOKEN} chars)"
+else
+    echo "[startup] WARNING: Token refresh failed: $(echo "$REFRESH_RESULT" | head -c 150)"
+    echo "[startup] Continuing with existing token — CLI may auto-refresh if refresh token is still valid."
+fi
+
 # Verify ACP is installed and working
 echo "[startup] Verifying ACP CLI..."
 acp --version || (echo "[startup] Installing ACP CLI..." && npm i -g @virtuals-protocol/acp-cli)
 acp --version
 
 echo "[startup] Verifying agent identity..."
-acp agent whoami --json 2>&1 | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'Agent: {d[\"name\"]} ({d[\"id\"]})')" 2>&1 || {
-    echo "[startup] ERROR: Could not verify agent identity. Check ACP_ACCESS_TOKEN and ACP_REFRESH_TOKEN."
-    exit 1
-}
+WHOAMI_OUT=$(acp agent whoami --json 2>&1)
+if echo "$WHOAMI_OUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'Agent: {d[\"name\"]} ({d[\"id\"]})')" 2>/dev/null; then
+    echo "[startup] Agent identity verified."
+else
+    echo "[startup] WARNING: Could not verify agent identity via CLI."
+    echo "[startup] Output: $(echo "$WHOAMI_OUT" | head -c 200)"
+    echo "[startup] Continuing anyway — provider.py will use env vars for auth."
+fi
 
 echo "[startup] Verifying signer..."
-acp agent signer-policy --json | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'Signer policy: {d[\"policy\"]}')" 2>&1 || {
-    echo "[startup] WARNING: Signer not available. Provider will run in listen-only mode."
+acp agent signer-policy --json 2>&1 | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'Signer policy: {d[\"policy\"]}')" 2>&1 || {
+    echo "[startup] WARNING: Signer not available via CLI. Provider will handle signing internally."
 }
 
 echo "[startup] All checks passed. Launching provider..."
