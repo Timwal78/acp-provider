@@ -2,7 +2,7 @@ FROM python:3.11-slim
 
 # Install Node.js for ACP CLI + system deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl gnupg base64 \
+    curl gnupg \
     && curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
     && apt-get install -y nodejs \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
