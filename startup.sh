@@ -56,6 +56,11 @@ if [ -z "$ACP_AGENT_WALLET_ADDRESS" ]; then
 fi
 echo "[startup] Auth tokens present (access=${#ACP_ACCESS_TOKEN} chars, refresh=${#ACP_REFRESH_TOKEN} chars)"
 
+# Trim whitespace/newlines from tokens — copy-paste often adds trailing chars
+ACP_ACCESS_TOKEN=$(echo -n "$ACP_ACCESS_TOKEN" | tr -d '[:space:]')
+ACP_REFRESH_TOKEN=$(echo -n "$ACP_REFRESH_TOKEN" | tr -d '[:space:]')
+echo "[startup] Tokens trimmed (access=${#ACP_ACCESS_TOKEN} chars, refresh=${#ACP_REFRESH_TOKEN} chars)"
+
 # Attempt to refresh the access token using the refresh token.
 # The access token expires every hour, so on Render restarts it will almost always be stale.
 # The refresh token lasts longer. We call the ACP API directly to get a fresh access token.
