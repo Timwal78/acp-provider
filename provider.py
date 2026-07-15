@@ -421,6 +421,609 @@ def api_stablecoin_flow_tracker(params):
         },
     }
 
+
+# ============================================================
+# FEDERAL / CONTRACTING APIs (SAM.gov moat — UEI G24VZA4RLMK3)
+# Data source: USAspending.gov API (free, no key required)
+# ============================================================
+
+def api_federal_contract_opportunities(params):
+    """Active federal contract awards — who's getting what, for how much.
+    Uses USAspending.gov spending_by_award endpoint.
+    Req: { top_n?: int, agency?: string, naics?: string, min_amount?: float }
+    """
+    top_n = min(int(params.get("top_n", 20)), 100)
+    agency = params.get("agency", "")
+    min_amount = float(params.get("min_amount", 0))
+    naics = params.get("naics", "")
+
+    filters = {
+        "award_type_codes": ["A", "B", "C", "D"],
+        "time_period": [{"start_date": "2024-10-01", "end_date": "2025-09-30"}]
+    }
+    if agency:
+        filters["awarding_agencies"] = [{"name": agency, "type": "awarding"}]
+    if naics:
+        filters["naics_codes"] = [naics]
+
+    payload = {
+        "filters": filters,
+        "fields": ["Award ID", "Recipient Name", "Award Amount", "Start Date",
+                    "End Date", "Awarding Agency", "Awarding Sub Agency",
+                    "Contract Award Type", "recipient_id"],
+        "page": 1, "limit": top_n,
+        "sort": "Award Amount", "sort_direction": "desc"
+    }
+
+    data = fetch_url("https://api.usaspending.gov/api/v2/search/spending_by_award/",
+                     method="POST", data=payload)
+    if isinstance(data, dict) and "error" in data:
+        return {"error": data["error"]}
+
+    awards = []
+    for r in data.get("results", []):
+        amt = r.get("Award Amount", 0) or 0
+        if amt < min_amount:
+            continue
+        awards.append({
+            "award_id": r.get("Award ID"),
+            "recipient": r.get("Recipient Name"),
+            "amount_usd": amt,
+            "start_date": r.get("Start Date"),
+            "end_date": r.get("End Date"),
+            "awarding_agency": r.get("Awarding Agency"),
+            "awarding_sub_agency": r.get("Awarding Sub Agency"),
+            "award_type": r.get("Contract Award Type"),
+        })
+
+    total = sum(a["amount_usd"] for a in awards)
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "awards_returned": len(awards),
+        "total_award_value_usd": round(total, 2),
+        "top_n_requested": top_n,
+        "filters_applied": {"agency": agency, "naics": naics, "min_amount": min_amount},
+        "awards": awards,
+    }
+
+
+def api_federal_award_history(params):
+    """Contract award history by contractor name.
+    Req: { contractor_name: string, top_n?: int }
+    """
+    contractor = params.get("contractor_name", "")
+    if not contractor:
+        return {"error": "contractor_name is required"}
+    top_n = min(int(params.get("top_n", 20)), 100)
+
+    payload = {
+        "filters": {
+            "award_type_codes": ["A", "B", "C", "D"],
+            "time_period": [{"start_date": "2020-10-01", "end_date": "2025-09-30"}],
+            "recipient_search_text": [contractor]
+        },
+        "fields": ["Award ID", "Recipient Name", "Award Amount", "Start Date",
+                    "End Date", "Awarding Agency", "Awarding Sub Agency",
+                    "Contract Award Type"],
+        "page": 1, "limit": top_n,
+        "sort": "Award Amount", "sort_direction": "desc"
+    }
+
+    data = fetch_url("https://api.usaspending.gov/api/v2/search/spending_by_award/",
+                     method="POST", data=payload)
+    if isinstance(data, dict) and "error" in data:
+        return {"error": data["error"]}
+
+    awards = []
+    for r in data.get("results", []):
+        awards.append({
+            "award_id": r.get("Award ID"),
+            "recipient": r.get("Recipient Name"),
+            "amount_usd": r.get("Award Amount", 0) or 0,
+            "start_date": r.get("Start Date"),
+            "end_date": r.get("End Date"),
+            "awarding_agency": r.get("Awarding Agency"),
+            "awarding_sub_agency": r.get("Awarding Sub Agency"),
+            "award_type": r.get("Contract Award Type"),
+        })
+
+    total = sum(a["amount_usd"] for a in awards)
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "contractor_searched": contractor,
+        "awards_returned": len(awards),
+        "total_award_value_usd": round(total, 2),
+        "awards": awards,
+    }
+
+
+def api_sdvosb_setaside_feed(params):
+    """SDVOSB/VOSB set-aside contract awards — veteran-owned business opportunities.
+    Uses USAspending.gov with contract_set_asides filter.
+    Req: { top_n?: int, agency?: string }
+    """
+    top_n = min(int(params.get("top_n", 20)), 100)
+    agency = params.get("agency", "")
+
+    filters = {
+        "award_type_codes": ["A", "B", "C", "D"],
+        "time_period": [{"start_date": "2024-10-01", "end_date": "2025-09-30"}],
+        "contract_set_asides": ["SBP1"]
+    }
+    if agency:
+        filters["awarding_agencies"] = [{"name": agency, "type": "awarding"}]
+
+    payload = {
+        "filters": filters,
+        "fields": ["Award ID", "Recipient Name", "Award Amount", "Start Date",
+                    "Awarding Agency", "Awarding Sub Agency",
+                    "Contract Set Aside Type"],
+        "page": 1, "limit": top_n,
+        "sort": "Award Amount", "sort_direction": "desc"
+    }
+
+    data = fetch_url("https://api.usaspending.gov/api/v2/search/spending_by_award/",
+                     method="POST", data=payload)
+    if isinstance(data, dict) and "error" in data:
+        return {"error": data["error"]}
+
+    awards = []
+    for r in data.get("results", []):
+        awards.append({
+            "award_id": r.get("Award ID"),
+            "recipient": r.get("Recipient Name"),
+            "amount_usd": r.get("Award Amount", 0) or 0,
+            "start_date": r.get("Start Date"),
+            "awarding_agency": r.get("Awarding Agency"),
+            "set_aside_type": r.get("Contract Set Aside Type", "SDVOSB"),
+        })
+
+    total = sum(a["amount_usd"] for a in awards)
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "set_aside_category": "SDVOSB (Service-Disabled Veteran-Owned Business)",
+        "awards_returned": len(awards),
+        "total_setaside_value_usd": round(total, 2),
+        "awards": awards,
+    }
+
+
+def api_sam_entity_verification(params):
+    """Verify a federal contractor entity via USAspending.gov recipient search.
+    Returns entity name, UEI, DUNS, and award history.
+    Req: { entity_name: string }
+    """
+    entity_name = params.get("entity_name", "")
+    if not entity_name:
+        return {"error": "entity_name is required"}
+
+    search_payload = {"search_text": entity_name, "limit": 5}
+    search_data = fetch_url("https://api.usaspending.gov/api/v2/autocomplete/recipient/",
+                            method="POST", data=search_payload)
+    if isinstance(search_data, dict) and "error" in search_data:
+        return {"error": search_data["error"]}
+
+    entities = []
+    for r in search_data.get("results", []):
+        entities.append({
+            "name": r.get("recipient_name"),
+            "uei": r.get("uei"),
+            "duns": r.get("duns"),
+            "recipient_level": r.get("recipient_level"),
+        })
+
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "entity_searched": entity_name,
+        "entities_found": len(entities),
+        "entities": entities,
+    }
+
+
+def api_federal_spending_by_agency(params):
+    """Federal spending breakdown by agency.
+    Shows total obligations, outlays, and budget authority for each agency.
+    Req: { fiscal_year?: int }
+    """
+    fiscal_year = int(params.get("fiscal_year", 2025))
+
+    data = fetch_url("https://api.usaspending.gov/api/v2/references/toptier_agencies/")
+    if isinstance(data, dict) and "error" in data:
+        return {"error": data["error"]}
+
+    agencies = []
+    for a in data.get("results", []):
+        agencies.append({
+            "agency_name": a.get("agency_name"),
+            "abbreviation": a.get("abbreviation"),
+            "toptier_code": a.get("toptier_code"),
+            "obligated_amount": a.get("obligated_amount", 0) or 0,
+            "outlay_amount": a.get("outlay_amount", 0) or 0,
+            "budget_authority": a.get("budget_authority_amount", 0) or 0,
+            "active_fy": a.get("active_fy"),
+            "percentage_of_total": a.get("percentage_of_total_budget_authority", 0) or 0,
+        })
+
+    agencies.sort(key=lambda x: x["obligated_amount"], reverse=True)
+    total_obligated = sum(a["obligated_amount"] for a in agencies)
+
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "fiscal_year": fiscal_year,
+        "total_agencies": len(agencies),
+        "total_obligated_usd": round(total_obligated, 2),
+        "agencies": agencies[:50],
+    }
+
+
+def api_excluded_parties_check(params):
+    """Check if an entity appears in federal award records with exclusion indicators.
+    Uses USAspending.gov recipient search + award search.
+    Req: { entity_name: string }
+    """
+    entity_name = params.get("entity_name", "")
+    if not entity_name:
+        return {"error": "entity_name is required"}
+
+    search_data = fetch_url("https://api.usaspending.gov/api/v2/autocomplete/recipient/",
+                            method="POST", data={"search_text": entity_name, "limit": 5})
+    if isinstance(search_data, dict) and "error" in search_data:
+        return {"error": search_data["error"]}
+
+    recipients = []
+    for r in search_data.get("results", []):
+        recipients.append({
+            "name": r.get("recipient_name"),
+            "uei": r.get("uei"),
+            "duns": r.get("duns"),
+        })
+
+    award_payload = {
+        "filters": {
+            "award_type_codes": ["A", "B", "C", "D"],
+            "time_period": [{"start_date": "2024-01-01", "end_date": "2025-09-30"}],
+            "recipient_search_text": [entity_name]
+        },
+        "fields": ["Award ID", "Recipient Name", "Award Amount", "Start Date", "Awarding Agency"],
+        "page": 1, "limit": 5,
+        "sort": "Award Amount", "sort_direction": "desc"
+    }
+    award_data = fetch_url("https://api.usaspending.gov/api/v2/search/spending_by_award/",
+                           method="POST", data=award_payload)
+
+    recent_awards = []
+    if isinstance(award_data, dict) and "results" in award_data:
+        for r in award_data["results"][:5]:
+            recent_awards.append({
+                "award_id": r.get("Award ID"),
+                "recipient": r.get("Recipient Name"),
+                "amount_usd": r.get("Award Amount", 0) or 0,
+                "awarding_agency": r.get("Awarding Agency"),
+            })
+
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "entity_searched": entity_name,
+        "entities_found": len(recipients),
+        "recipients": recipients,
+        "recent_awards": recent_awards,
+        "note": "Cross-reference with SAM.gov exclusion list for full debarment verification",
+    }
+
+
+# ============================================================
+# CRYPTO ON-CHAIN ANALYTICS APIs
+# Data sources: DexScreener (free), GoPlus Labs (free), DefiLlama (free)
+# ============================================================
+
+def api_crypto_onchain_analytics(params):
+    """On-chain token analytics: price, volume, liquidity, FDV, txns, market cap.
+    Uses DexScreener API — query by token contract address.
+    Req: { token_address: string, chain?: string }
+    """
+    token_address = params.get("token_address", "")
+    if not token_address:
+        return {"error": "token_address is required"}
+    chain = params.get("chain", "")
+
+    url = f"https://api.dexscreener.com/latest/dex/tokens/{token_address}"
+    data = fetch_url(url)
+    if isinstance(data, dict) and "error" in data:
+        return {"error": data["error"]}
+
+    pairs = data.get("pairs", [])
+    if not pairs:
+        return {"error": "No trading pairs found for this token address"}
+
+    if chain:
+        pairs = [p for p in pairs if p.get("chainId", "").lower() == chain.lower()]
+
+    pairs.sort(key=lambda p: float(p.get("liquidity", {}).get("usd", 0) or 0), reverse=True)
+
+    top_pairs = []
+    for p in pairs[:10]:
+        txns = p.get("txns", {}).get("h24", {})
+        top_pairs.append({
+            "chain": p.get("chainId"),
+            "dex": p.get("dexId"),
+            "pair": f"{p.get('baseToken', {}).get('symbol', '?')}/{p.get('quoteToken', {}).get('symbol', '?')}",
+            "price_usd": p.get("priceUsd"),
+            "volume_24h_usd": float(p.get("volume", {}).get("h24", 0) or 0),
+            "liquidity_usd": float(p.get("liquidity", {}).get("usd", 0) or 0),
+            "fdv": float(p.get("fdv", 0) or 0),
+            "market_cap": float(p.get("marketCap", 0) or 0),
+            "txns_24h_buys": txns.get("buys", 0),
+            "txns_24h_sells": txns.get("sells", 0),
+            "price_change_24h": p.get("priceChange", {}).get("h24", 0),
+            "pair_address": p.get("pairAddress"),
+            "pair_created_at": p.get("pairCreatedAt"),
+        })
+
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "token_address": token_address,
+        "pairs_found": len(pairs),
+        "pairs_returned": len(top_pairs),
+        "token_info": {
+            "name": pairs[0].get("baseToken", {}).get("name") if pairs else None,
+            "symbol": pairs[0].get("baseToken", {}).get("symbol") if pairs else None,
+        },
+        "pairs": top_pairs,
+    }
+
+
+def api_crypto_sentiment_scanner(params):
+    """Crypto market sentiment aggregation: Fear & Greed + social metrics.
+    Combines Fear & Greed Index with DexScreener volume activity as sentiment proxy.
+    Req: { token_symbol?: string }
+    """
+    token_symbol = params.get("token_symbol", "")
+
+    fng_data = fetch_url("https://api.alternative.me/fng/?limit=7")
+    if isinstance(fng_data, dict) and "error" in fng_data:
+        fng_value = 50
+        fng_class = "Neutral"
+    else:
+        fng = fng_data.get("data", [{}])[0]
+        fng_value = int(fng.get("value", 50))
+        fng_class = fng.get("value_classification", "Neutral")
+
+    if fng_value <= 25:
+        regime = "EXTREME_FEAR"
+        signal = "BUY (contrarian)"
+    elif fng_value <= 45:
+        regime = "FEAR"
+        signal = "ACCUMULATE"
+    elif fng_value <= 55:
+        regime = "NEUTRAL"
+        signal = "HOLD"
+    elif fng_value <= 75:
+        regime = "GREED"
+        signal = "REDUCE"
+    else:
+        regime = "EXTREME_GREED"
+        signal = "SELL (contrarian)"
+
+    token_data = {}
+    if token_symbol:
+        search_data = fetch_url(f"https://api.dexscreener.com/latest/dex/search?q={token_symbol}")
+        if isinstance(search_data, dict) and "pairs" in search_data:
+            pairs = search_data.get("pairs", [])[:5]
+            pairs.sort(key=lambda p: float(p.get("volume", {}).get("h24", 0) or 0), reverse=True)
+            token_data = {
+                "symbol": token_symbol,
+                "top_pairs": [{
+                    "pair": f"{p.get('baseToken', {}).get('symbol', '?')}/{p.get('quoteToken', {}).get('symbol', '?')}",
+                    "volume_24h": float(p.get("volume", {}).get("h24", 0) or 0),
+                    "liquidity": float(p.get("liquidity", {}).get("usd", 0) or 0),
+                    "price_change_24h": p.get("priceChange", {}).get("h24", 0),
+                    "txns_24h": p.get("txns", {}).get("h24", {}),
+                } for p in pairs[:3]]
+            }
+
+    fng_history = []
+    if isinstance(fng_data, dict) and "data" in fng_data:
+        for entry in fng_data["data"][:7]:
+            fng_history.append({
+                "date": entry.get("timestamp"),
+                "value": int(entry.get("value", 0)),
+                "classification": entry.get("value_classification"),
+            })
+
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "fear_greed_index": fng_value,
+        "classification": fng_class,
+        "regime": regime,
+        "signal": signal,
+        "fng_7d_history": fng_history,
+        "token_sentiment": token_data if token_data else None,
+    }
+
+
+def api_dex_volume_ranking(params):
+    """DEX trading volume rankings by protocol.
+    Uses DefiLlama DEX overview endpoint.
+    Req: { top_n?: int }
+    """
+    top_n = min(int(params.get("top_n", 20)), 100)
+
+    data = fetch_url("https://api.llama.fi/overview/dexs?dataType=dailyVolume")
+    if isinstance(data, dict) and "error" in data:
+        return {"error": data["error"]}
+
+    protocols = data.get("protocols", [])
+    protocols.sort(key=lambda p: p.get("total24h") or 0, reverse=True)
+
+    ranking = []
+    for p in protocols[:top_n]:
+        ranking.append({
+            "protocol": p.get("name"),
+            "volume_24h_usd": p.get("total24h") or 0,
+            "volume_7d_usd": p.get("total7d") or 0,
+            "chains": p.get("chains", []),
+            "description": p.get("description", ""),
+        })
+
+    total_24h = data.get("total24h") or 0
+    total_7d = data.get("total7d") or 0
+
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "total_dex_volume_24h_usd": total_24h,
+        "total_dex_volume_7d_usd": total_7d,
+        "protocols_returned": len(ranking),
+        "ranking": ranking,
+    }
+
+
+def api_token_security_audit(params):
+    """Token contract security audit: honeypot, rugpull risk, taxes, ownership.
+    Uses GoPlus Labs API (free, no key).
+    Req: { chain_id: int, token_address: string }
+    """
+    chain_id = str(params.get("chain_id", "1"))
+    token_address = params.get("token_address", "")
+    if not token_address:
+        return {"error": "token_address is required"}
+
+    url = f"https://api.gopluslabs.io/api/v1/token_security/{chain_id}?contract_addresses={token_address}"
+    data = fetch_url(url)
+    if isinstance(data, dict) and "error" in data:
+        return {"error": data["error"]}
+
+    result = data.get("result", {})
+    token_info = result.get(token_address.lower(), result.get(token_address, {}))
+
+    if not token_info:
+        return {"error": "No security data found for this token. Token may not be indexed."}
+
+    risk_factors = []
+    risk_score = 0
+
+    if str(token_info.get("is_honeypot", "0")) == "1":
+        risk_factors.append("HONEYPOT DETECTED")
+        risk_score += 100
+    if str(token_info.get("is_mintable", "0")) == "1":
+        risk_factors.append("Owner can mint new tokens")
+        risk_score += 30
+    if str(token_info.get("hidden_owner", "0")) == "1":
+        risk_factors.append("Hidden owner detected")
+        risk_score += 25
+    if str(token_info.get("owner_change_balance", "0")) == "1":
+        risk_factors.append("Owner can change balances")
+        risk_score += 50
+    if str(token_info.get("selfdestruct", "0")) == "1":
+        risk_factors.append("Self-destruct capability")
+        risk_score += 40
+    if str(token_info.get("is_proxy", "0")) == "1":
+        risk_factors.append("Proxy contract (upgradeable)")
+        risk_score += 15
+
+    sell_tax = token_info.get("sell_tax", "0")
+    buy_tax = token_info.get("buy_tax", "0")
+    try:
+        sell_tax_pct = float(sell_tax) * 100 if sell_tax else 0
+        buy_tax_pct = float(buy_tax) * 100 if buy_tax else 0
+    except (ValueError, TypeError):
+        sell_tax_pct = 0
+        buy_tax_pct = 0
+
+    if sell_tax_pct > 10:
+        risk_factors.append(f"High sell tax: {sell_tax_pct:.1f}%")
+        risk_score += 20
+    if buy_tax_pct > 10:
+        risk_factors.append(f"High buy tax: {buy_tax_pct:.1f}%")
+        risk_score += 20
+
+    if risk_score >= 100:
+        risk_level = "CRITICAL"
+    elif risk_score >= 50:
+        risk_level = "HIGH"
+    elif risk_score >= 25:
+        risk_level = "MEDIUM"
+    elif risk_score >= 10:
+        risk_level = "LOW"
+    else:
+        risk_level = "SAFE"
+
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "chain_id": chain_id,
+        "token_address": token_address,
+        "token_name": token_info.get("token_name"),
+        "token_symbol": token_info.get("token_symbol"),
+        "risk_score": risk_score,
+        "risk_level": risk_level,
+        "risk_factors": risk_factors,
+        "security_checks": {
+            "is_honeypot": token_info.get("is_honeypot"),
+            "is_open_source": token_info.get("is_open_source"),
+            "is_proxy": token_info.get("is_proxy"),
+            "is_mintable": token_info.get("is_mintable"),
+            "owner_change_balance": token_info.get("owner_change_balance"),
+            "hidden_owner": token_info.get("hidden_owner"),
+            "selfdestruct": token_info.get("selfdestruct"),
+            "external_call": token_info.get("external_call"),
+            "is_in_dex": token_info.get("is_in_dex"),
+            "is_trust_list": token_info.get("is_trust_list"),
+        },
+        "taxes": {
+            "buy_tax_pct": round(buy_tax_pct, 2),
+            "sell_tax_pct": round(sell_tax_pct, 2),
+        },
+        "holder_count": token_info.get("holder_count"),
+        "lp_holder_count": token_info.get("lp_holder_count"),
+        "total_supply": token_info.get("total_supply"),
+    }
+
+
+def api_whale_wallet_tracker(params):
+    """Track top trading pairs by volume as a proxy for whale activity.
+    Uses DexScreener search to find high-volume pairs.
+    Req: { query: string, top_n?: int }
+    """
+    query = params.get("query", "")
+    if not query:
+        return {"error": "query is required (e.g. 'ETH/USDC', 'BTC', 'SOL')"}
+    top_n = min(int(params.get("top_n", 20)), 100)
+
+    data = fetch_url(f"https://api.dexscreener.com/latest/dex/search?q={query}")
+    if isinstance(data, dict) and "error" in data:
+        return {"error": data["error"]}
+
+    pairs = data.get("pairs", [])
+    pairs.sort(key=lambda p: float(p.get("volume", {}).get("h24", 0) or 0), reverse=True)
+
+    results = []
+    for p in pairs[:top_n]:
+        txns = p.get("txns", {}).get("h24", {})
+        results.append({
+            "chain": p.get("chainId"),
+            "dex": p.get("dexId"),
+            "pair": f"{p.get('baseToken', {}).get('symbol', '?')}/{p.get('quoteToken', {}).get('symbol', '?')}",
+            "price_usd": p.get("priceUsd"),
+            "volume_24h_usd": float(p.get("volume", {}).get("h24", 0) or 0),
+            "liquidity_usd": float(p.get("liquidity", {}).get("usd", 0) or 0),
+            "fdv": float(p.get("fdv", 0) or 0),
+            "market_cap": float(p.get("marketCap", 0) or 0),
+            "txns_24h_buys": txns.get("buys", 0),
+            "txns_24h_sells": txns.get("sells", 0),
+            "price_change_24h_pct": p.get("priceChange", {}).get("h24", 0),
+            "price_change_6h_pct": p.get("priceChange", {}).get("h6", 0),
+            "pair_created_at": p.get("pairCreatedAt"),
+        })
+
+    total_vol = sum(r["volume_24h_usd"] for r in results)
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "query": query,
+        "pairs_found": len(pairs),
+        "pairs_returned": len(results),
+        "total_volume_24h_usd": round(total_vol, 2),
+        "top_pairs": results,
+    }
+
 # ============================================================
 # ENDPOINT REGISTRY
 # ============================================================
@@ -432,6 +1035,20 @@ ENDPOINTS = {
     "crypto_market_overview": api_crypto_market_overview,
     "crypto_price_lookup": api_crypto_price_lookup,
     "stablecoin_flow_tracker": api_stablecoin_flow_tracker,
+# --- Federal/Contracting APIs (SAM.gov moat) ---
+    "federal_contract_opportunities": api_federal_contract_opportunities,
+    "federal_award_history": api_federal_award_history,
+    "sdvosb_setaside_feed": api_sdvosb_setaside_feed,
+    "sam_entity_verification": api_sam_entity_verification,
+    "federal_spending_by_agency": api_federal_spending_by_agency,
+    "excluded_parties_check": api_excluded_parties_check,
+
+    # --- Crypto On-Chain Analytics ---
+    "crypto_onchain_analytics": api_crypto_onchain_analytics,
+    "crypto_sentiment_scanner": api_crypto_sentiment_scanner,
+    "dex_volume_ranking": api_dex_volume_ranking,
+    "token_security_audit": api_token_security_audit,
+    "whale_wallet_tracker": api_whale_wallet_tracker,
 }
 
 # ============================================================
