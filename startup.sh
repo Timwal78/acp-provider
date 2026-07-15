@@ -88,17 +88,21 @@ done
 
 if [ -n "$KEYRING_MODULE" ]; then
     echo "[startup] Found cross-keychain at: $KEYRING_MODULE"
+    # Pass values as argv to avoid shell interpolation mangling JS string literals
     node -e "
-const { setPassword, useBackend } = require('$KEYRING_MODULE');
+const mod = require(process.argv[1]);
+const wallet = process.argv[2];
+const accessToken = process.argv[3];
+const refreshToken = process.argv[4];
 async function main() {
-    await useBackend('file');
-    const w = '${ACP_AGENT_WALLET_ADDRESS}'.toLowerCase();
-    await setPassword('acp-auth', 'access-token-' + w, '${ACP_ACCESS_TOKEN}');
-    await setPassword('acp-auth', 'refresh-token-' + w, '${ACP_REFRESH_TOKEN}');
+    await mod.useBackend('file');
+    const w = wallet.toLowerCase();
+    await mod.setPassword('acp-auth', 'access-token-' + w, accessToken);
+    await mod.setPassword('acp-auth', 'refresh-token-' + w, refreshToken);
     console.log('[startup] Tokens written to file keyring');
 }
 main().catch(e => { console.error('[startup] WARNING: Failed to write keyring:', e.message); });
-    " 2>&1 || {
+    " "$KEYRING_MODULE" "$ACP_AGENT_WALLET_ADDRESS" "$ACP_ACCESS_TOKEN" "$ACP_REFRESH_TOKEN" 2>&1 || {
         echo "[startup] WARNING: Could not write tokens to file keyring"
     }
 else
