@@ -61,41 +61,23 @@ ACP_ACCESS_TOKEN=$(echo -n "$ACP_ACCESS_TOKEN" | tr -d '[:space:]')
 ACP_REFRESH_TOKEN=$(echo -n "$ACP_REFRESH_TOKEN" | tr -d '[:space:]')
 echo "[startup] Tokens trimmed (access=${#ACP_ACCESS_TOKEN} chars, refresh=${#ACP_REFRESH_TOKEN} chars)"
 
-# Attempt to refresh the access token using the refresh token.
-# The access token expires every hour, so on Render restarts it will almost always be stale.
-# The refresh token lasts longer. We call the ACP API directly to get a fresh access token.
-echo "[startup] Refreshing access token..."
-# Write JSON payload to a temp file using python3 (guarantees valid JSON, no shell escaping issues)
-# Then use curl -d @file (bypasses Cloudflare's Python urllib block)
-python3 -c "import json,os; json.dump({'refreshToken': os.environ.get('ACP_REFRESH_TOKEN','')}, open('/tmp/refresh_payload.json','w'))"
-REFRESH_RESULT=$(curl -s --max-time 10 -X POST "https://api.acp.virtuals.io/auth/cli/refresh" \
-    -H "Content-Type: application/json" \
-    -d @/tmp/refresh_payload.json 2>&1)
-rm -f /tmp/refresh_payload.json
-
-# Parse the JSON response with Python (just parsing, no network call)
-if echo "$REFRESH_RESULT" | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-assert 'data' in d and 'token' in d['data']
-" 2>/dev/null; then
-    export ACP_ACCESS_TOKEN=$(echo "$REFRESH_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['token'])")
-    NEW_RT=$(echo "$REFRESH_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['data'].get('refreshToken',''))")
-    if [ -n "$NEW_RT" ]; then
-        export ACP_REFRESH_TOKEN="$NEW_RT"
-    fi
-    echo "[startup] Token refreshed successfully (new access=${#ACP_ACCESS_TOKEN} chars)"
-else
-    echo "[startup] WARNING: Token refresh failed: $(echo "$REFRESH_RESULT" | head -c 150)"
-    echo "[startup] Continuing with existing token — CLI may auto-refresh if refresh token is still valid."
-fi
+# Write tokens to the ACP CLI keyring using `acp configure --token`.
+# This stores them in the OS keyring/file keyring so the CLI can auto-refresh
+# using its internal Node.js fetch() (NOT blocked by Cloudflare like Python urllib/curl).
+# The CLI's resolveToken() will find the expired access token, call refreshCliToken()
+# with the refresh token, get a new access token + new refresh token, and persist both.
+echo "[startup] Configuring ACP CLI with tokens..."
+acp configure --token "$ACP_ACCESS_TOKEN" --refresh-token "$ACP_REFRESH_TOKEN" --wallet "$ACP_AGENT_WALLET_ADDRESS" 2>&1 || {
+    echo "[startup] WARNING: acp configure failed — tokens may be invalid"
+}
 
 # Verify ACP is installed and working
 echo "[startup] Verifying ACP CLI..."
 acp --version || (echo "[startup] Installing ACP CLI..." && npm i -g @virtuals-protocol/acp-cli)
 acp --version
 
-echo "[startup] Verifying agent identity..."
+# The CLI auto-refreshes the access token internally using Node fetch (not blocked by Cloudflare)
+echo "[startup] Verifying agent identity (CLI will auto-refresh if needed)..."
 WHOAMI_OUT=$(acp agent whoami --json 2>&1)
 if echo "$WHOAMI_OUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'Agent: {d[\"name\"]} ({d[\"id\"]})')" 2>/dev/null; then
     echo "[startup] Agent identity verified."
