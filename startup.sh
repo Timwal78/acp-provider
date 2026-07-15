@@ -60,10 +60,13 @@ echo "[startup] Auth tokens present (access=${#ACP_ACCESS_TOKEN} chars, refresh=
 # The access token expires every hour, so on Render restarts it will almost always be stale.
 # The refresh token lasts longer. We call the ACP API directly to get a fresh access token.
 echo "[startup] Refreshing access token..."
-# Use curl instead of Python urllib — Cloudflare blocks Python's urllib on Render IPs
+# Write JSON payload to a temp file using python3 (guarantees valid JSON, no shell escaping issues)
+# Then use curl -d @file (bypasses Cloudflare's Python urllib block)
+python3 -c "import json,os; json.dump({'refreshToken': os.environ.get('ACP_REFRESH_TOKEN','')}, open('/tmp/refresh_payload.json','w'))"
 REFRESH_RESULT=$(curl -s --max-time 10 -X POST "https://api.acp.virtuals.io/auth/cli/refresh" \
     -H "Content-Type: application/json" \
-    -d "{\"refreshToken\": \"$ACP_REFRESH_TOKEN\"}" 2>&1)
+    -d @/tmp/refresh_payload.json 2>&1)
+rm -f /tmp/refresh_payload.json
 
 # Parse the JSON response with Python (just parsing, no network call)
 if echo "$REFRESH_RESULT" | python3 -c "
