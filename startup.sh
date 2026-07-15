@@ -74,10 +74,20 @@ echo "[startup] Writing tokens to file keyring..."
 export XDG_CONFIG_HOME=/opt/acp-config
 export XDG_DATA_HOME=/opt/acp-config
 
-# Find the cross-keychain module in the global ACP CLI install
-KEYRING_MODULE=$(node -e "try { console.log(require.resolve('cross-keychain/dist/index.js', {paths: [require.resolve('@virtuals-protocol/acp-cli/package.json')]})); } catch(e) { console.log(''); }" 2>/dev/null)
+# Find the cross-keychain module — try multiple known paths for global npm installs
+KEYRING_MODULE=""
+for p in \
+    "/usr/lib/node_modules/@virtuals-protocol/acp-cli/node_modules/cross-keychain/dist/index.js" \
+    "/usr/local/lib/node_modules/@virtuals-protocol/acp-cli/node_modules/cross-keychain/dist/index.js" \
+    "$(npm root -g 2>/dev/null)/@virtuals-protocol/acp-cli/node_modules/cross-keychain/dist/index.js"; do
+    if [ -f "$p" ]; then
+        KEYRING_MODULE="$p"
+        break
+    fi
+done
 
 if [ -n "$KEYRING_MODULE" ]; then
+    echo "[startup] Found cross-keychain at: $KEYRING_MODULE"
     node -e "
 const { setPassword, useBackend } = require('$KEYRING_MODULE');
 async function main() {
