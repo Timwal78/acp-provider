@@ -65,17 +65,27 @@ def save_state(state):
 # HTTP HELPER
 # ============================================================
 def fetch_url(url, method="GET", data=None, headers=None):
-    """Fetch a URL and return parsed JSON."""
+    """Fetch a URL and return parsed JSON. Uses curl subprocess for Cloudflare compatibility."""
     if headers is None:
         headers = {"User-Agent": "scriptmasterlabs-acp/1.0", "Accept": "application/json"}
     if data:
         headers["Content-Type"] = "application/json"
-    req = urllib.request.Request(url, method=method, data=json.dumps(data).encode() if data else None, headers=headers)
+    
+    # Build curl command
+    curl_cmd = ["curl", "-s", "--max-time", str(API_TIMEOUT), "-X", method, url]
+    for k, v in headers.items():
+        curl_cmd.extend(["-H", f"{k}: {v}"])
+    if data:
+        curl_cmd.extend(["-d", json.dumps(data)])
+    
     try:
-        with urllib.request.urlopen(req, timeout=API_TIMEOUT) as resp:
-            return json.loads(resp.read().decode())
-    except urllib.error.HTTPError as e:
-        return {"error": f"HTTP {e.code}", "detail": e.read().decode()[:200]}
+        result = subprocess.run(curl_cmd, capture_output=True, text=True, timeout=API_TIMEOUT + 5)
+        if result.returncode == 0 and result.stdout:
+            return json.loads(result.stdout)
+        else:
+            return {"error": f"curl failed (rc={result.returncode})", "detail": result.stderr[:200]}
+    except json.JSONDecodeError as e:
+        return {"error": f"JSON decode error: {e}", "detail": result.stdout[:200] if result else "no output"}
     except Exception as e:
         return {"error": str(e)}
 
