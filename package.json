@@ -1,0 +1,13 @@
+{
+  "name": "acp-provider",
+  "version": "1.0.0",
+  "description": "ACP Provider Server for scriptmasterlabs — sells 7 API endpoints on the ACP marketplace",
+  "main": "provider.py",
+  "scripts": {
+    "start": "bash startup.sh"
+  },
+  "dependencies": {},
+  "engines": {
+    "node": ">=18"
+  }
+}

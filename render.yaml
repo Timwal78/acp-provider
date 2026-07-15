@@ -1,0 +1,17 @@
+services:
+  - type: worker
+    name: acp-provider-scriptmasterlabs
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: ACP_CONFIG_JSON
+        sync: false
+      - key: ACP_SIGNER_KEYS_JSON
+        sync: false
+      - key: ACP_KEYRING_KEY_B64
+        sync: false
+      - key: PYTHONUNBUFFERED
+        value: "1"
