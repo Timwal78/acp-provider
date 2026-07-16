@@ -81,40 +81,48 @@ echo "[startup] Writing tokens to file keyring..."
 export XDG_CONFIG_HOME=/opt/acp-config
 export XDG_DATA_HOME=/opt/acp-config
 
-# Find the cross-keychain module — try multiple known paths for global npm installs
-KEYRING_MODULE=""
-for p in \
-    "/usr/lib/node_modules/@virtuals-protocol/acp-cli/node_modules/cross-keychain/dist/index.js" \
-    "/usr/local/lib/node_modules/@virtuals-protocol/acp-cli/node_modules/cross-keychain/dist/index.js" \
-    "$(npm root -g 2>/dev/null)/@virtuals-protocol/acp-cli/node_modules/cross-keychain/dist/index.js"; do
-    if [ -f "$p" ]; then
-        KEYRING_MODULE="$p"
-        break
-    fi
-done
+# Write tokens directly to the encrypted secrets.json file using Node's built-in crypto.
+# This bypasses cross-keychain's validateIdentifier() which rejects wallet addresses
+# as account names on both native and file backends.
+# Format: version(1 byte) + iv(12) + authTag(16) + ciphertext (AES-256-GCM)
+node -e "
+const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 
-if [ -n "$KEYRING_MODULE" ]; then
-    echo "[startup] Found cross-keychain at: $KEYRING_MODULE"
-    # Pass values as argv to avoid shell interpolation mangling JS string literals
-    node -e "
-const mod = require(process.argv[1]);
-const wallet = process.argv[2];
-const accessToken = process.argv[3];
-const refreshToken = process.argv[4];
-async function main() {
-    await mod.useBackend('file');
-    const w = wallet.toLowerCase();
-    await mod.setPassword('acp-auth', 'access-token-' + w, accessToken);
-    await mod.setPassword('acp-auth', 'refresh-token-' + w, refreshToken);
-    console.log('[startup] Tokens written to file keyring');
-}
-main().catch(e => { console.error('[startup] WARNING: Failed to write keyring:', e.message); });
-    " "$KEYRING_MODULE" "$ACP_AGENT_WALLET_ADDRESS" "$ACP_ACCESS_TOKEN" "$ACP_REFRESH_TOKEN" 2>&1 || {
-        echo "[startup] WARNING: Could not write tokens to file keyring"
+const wallet = process.argv[1];
+const accessToken = process.argv[2];
+const refreshToken = process.argv[3];
+
+// Read the keyring encryption key
+const keyPath = path.join(process.env.XDG_CONFIG_HOME || (path.join(require('os').homedir(), '.config')), 'keyring', 'file.key');
+const key = fs.readFileSync(keyPath);
+
+// Build the store (same structure cross-keychain expects)
+const w = wallet.toLowerCase();
+const store = {
+    'acp-auth': {
+        ['access-token-' + w]: accessToken,
+        ['refresh-token-' + w]: refreshToken
     }
-else
-    echo "[startup] WARNING: cross-keychain module not found, skipping keyring write"
-fi
+};
+
+// Encrypt: version(1) + iv(12) + authTag(16) + ciphertext
+const plaintext = JSON.stringify(store);
+const iv = crypto.randomBytes(12);
+const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+const authTag = cipher.getAuthTag();
+const output = Buffer.concat([Buffer.from([1]), iv, authTag, encrypted]);
+
+// Write to secrets.json
+const dataPath = path.join(process.env.XDG_DATA_HOME || (path.join(require('os').homedir(), '.local', 'share')), 'keyring', 'secrets.json');
+fs.mkdirSync(path.dirname(dataPath), { recursive: true });
+fs.writeFileSync(dataPath, output, { mode: 0o600 });
+console.log('[startup] Tokens written to file keyring');
+" "$ACP_AGENT_WALLET_ADDRESS" "$ACP_ACCESS_TOKEN" "$ACP_REFRESH_TOKEN" 2>&1 || {
+    echo "[startup] WARNING: Could not write tokens to file keyring"
+}
 
 # The CLI auto-refreshes the access token internally using Node fetch (not blocked by Cloudflare)
 echo "[startup] Verifying agent identity (CLI will auto-refresh if needed)..."
