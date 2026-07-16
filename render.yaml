@@ -15,3 +15,39 @@ services:
         sync: false
       - key: PYTHONUNBUFFERED
         value: "1"
+
+  # ── x402 HTTP layer — separate web service, same 18 data functions ──────
+  # provider.py above is an ACP-only background worker with no public HTTP
+  # surface, so it's invisible to x402 indexers (e.g. x402scan). This service
+  # exposes the same functions as real, paid HTTP endpoints (x402_server.py)
+  # so they're actually discoverable and payable over the standard x402
+  # 402→pay→settle flow. No free tier on any route — see x402_server.py.
+  - type: web
+    name: acp-x402-scriptmasterlabs
+    env: python
+    plan: starter
+    buildCommand: pip install -r requirements-x402.txt
+    startCommand: gunicorn x402_server:app --bind 0.0.0.0:$PORT
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      # Real Base (8453) address this service gets paid into. No default —
+      # x402_flask.py refuses to advertise a payTo until this is set, rather
+      # than falling back to some other product's wallet.
+      - key: X402_PAY_TO
+        sync: false
+      - key: X402_NETWORK
+        value: "base"
+      # Coinbase CDP facilitator creds (mainnet settlement + Bazaar/x402scan
+      # discovery). Without these, X402_FACILITATOR falls back to the public
+      # signup-free testnet facilitator — fine for a dry run, not for real
+      # USDC settlement on base mainnet.
+      - key: CDP_API_KEY_ID
+        sync: false
+      - key: CDP_API_KEY_SECRET
+        sync: false
+      # Optional bypass key for the operator's own agents/tests.
+      - key: OPERATOR_API_KEY
+        sync: false
