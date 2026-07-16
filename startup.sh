@@ -118,7 +118,13 @@ fi
 
 # The CLI auto-refreshes the access token internally using Node fetch (not blocked by Cloudflare)
 echo "[startup] Verifying agent identity (CLI will auto-refresh if needed)..."
-WHOAMI_OUT=$(acp agent whoami --json 2>&1)
+# `|| true` is required here under `set -e`: without it, a non-zero exit from
+# `acp agent whoami` kills the whole script on this line, before ever reaching
+# the if/else below whose entire purpose is to handle that failure gracefully
+# ("Continuing anyway — provider.py will use env vars for auth"). That
+# fallback was unreachable dead code until this fix -- confirmed against a
+# real Render deploy that exited status 1 immediately after this line.
+WHOAMI_OUT=$(acp agent whoami --json 2>&1) || true
 if echo "$WHOAMI_OUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'Agent: {d[\"name\"]} ({d[\"id\"]})')" 2>/dev/null; then
     echo "[startup] Agent identity verified."
 else
