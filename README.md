@@ -115,3 +115,33 @@ cMA6LAYeXjsLDzo85UN+/SDJEAqRD3MgS+fW+pVbhVs=
 ## Marketplace Structure (40 offerings)
 - 34 offerings at $0.03–$0.75 with $49/mo subscription
 - 6 premium offerings at $0.30–$5.00 (pay-per-call, no subscription)
+
+## x402 HTTP Layer (`x402_server.py`) — separate service, same 18 endpoints
+
+`provider.py` above only sells through the Virtuals ACP marketplace — a
+headless background worker (`type: worker` in `render.yaml`) with no public
+HTTP surface. That's why these endpoints never showed up on x402scan or any
+other x402 indexer: ACP and x402 are unrelated protocols, and there was
+nothing for an x402 crawler to find.
+
+`x402_server.py` fixes that by exposing the same 18 data functions
+(imported directly from `provider.py`'s `ENDPOINTS` dict — no logic
+duplicated) as real HTTP routes under `/x402/<name>`, gated by the standard
+x402 402→pay→settle flow (`x402_flask.py`, vendored from the SqueezeOS repo)
+on USDC/Base. **Every route requires payment — there is no free tier.**
+
+- Deployed as a second Render service in the same `render.yaml`:
+  `acp-x402-scriptmasterlabs` (`type: web`, plain Python runtime — no Docker/
+  Node/ACP CLI needed, since this layer never touches the ACP protocol).
+- Discovery manifest: `GET /.well-known/x402` (rails, facilitator, pricing).
+- Health check / endpoint list: `GET /` or `GET /api/status`.
+- Required env vars (see `render.yaml`): `X402_PAY_TO` (real Base address —
+  no default; the service returns `503 ERR_PAYMENT_NOT_CONFIGURED` rather
+  than ever advertising an unset/wrong payTo), `X402_NETWORK` (`base` for
+  mainnet), `CDP_API_KEY_ID` / `CDP_API_KEY_SECRET` (Coinbase CDP facilitator
+  — needed for real mainnet settlement and Bazaar/x402scan discoverability;
+  without them it falls back to the public testnet facilitator).
+- Pricing matches the ACP offerings above ($0.15–$0.75/call); kept in
+  `x402_server.py`'s own `_PRICES_USD` map so `provider.py` stays untouched.
+- `OPERATOR_API_KEY` (optional) bypasses payment for the operator's own
+  agents/tests, same convention as SqueezeOS's `require_payment`/`x402_guard`.
