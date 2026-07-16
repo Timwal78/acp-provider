@@ -56,9 +56,16 @@ if [ -z "$ACP_AGENT_WALLET_ADDRESS" ]; then
 fi
 echo "[startup] Auth tokens present (access=${#ACP_ACCESS_TOKEN} chars, refresh=${#ACP_REFRESH_TOKEN} chars)"
 
-# Trim whitespace/newlines from tokens — copy-paste often adds trailing chars
+# Trim whitespace/newlines from tokens AND the wallet address — copy-paste often
+# adds trailing chars. Missing this on the wallet address was a real bug: it's
+# used verbatim below to build the file-keyring account name
+# ("access-token-" + wallet), and cross-keychain's file backend rejects any
+# account string with a non-alphanumeric/dot/underscore/@/hyphen character —
+# a single trailing space/newline in the env var silently broke every boot's
+# keyring write with an opaque "account contains invalid characters" warning.
 ACP_ACCESS_TOKEN=$(echo -n "$ACP_ACCESS_TOKEN" | tr -d '[:space:]')
 ACP_REFRESH_TOKEN=$(echo -n "$ACP_REFRESH_TOKEN" | tr -d '[:space:]')
+ACP_AGENT_WALLET_ADDRESS=$(echo -n "$ACP_AGENT_WALLET_ADDRESS" | tr -d '[:space:]')
 echo "[startup] Tokens trimmed (access=${#ACP_ACCESS_TOKEN} chars, refresh=${#ACP_REFRESH_TOKEN} chars)"
 
 # Write tokens directly to the file-based keyring using a Node.js script.
