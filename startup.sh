@@ -81,6 +81,9 @@ echo "[startup] Writing tokens to file keyring..."
 export XDG_CONFIG_HOME=/opt/acp-config
 export XDG_DATA_HOME=/opt/acp-config
 
+# Force file-based keyring backend (native DBus/secret-service fails in Docker)
+export TS_KEYRING_BACKEND=file
+
 # Write tokens directly to the encrypted secrets.json file using Node's built-in crypto.
 # This bypasses cross-keychain's validateIdentifier() which rejects wallet addresses
 # as account names on both native and file backends.
