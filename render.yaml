@@ -14,6 +14,10 @@ services:
         sync: false
       - key: PYTHONUNBUFFERED
         value: "1"
+      - key: FRED_API_KEY
+        sync: false
+      - key: CONGRESS_API_KEY
+        sync: false
 
   # ── x402 HTTP layer — separate web service, same 18 data functions ──────
   # provider.py above is an ACP-only background worker with no public HTTP
