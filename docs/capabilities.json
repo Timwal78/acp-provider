@@ -1,72 +1,600 @@
 {
-  "agent_name": "scriptmasterlabs",
-  "agent_id": "019f5f40-c194-7776-b5e1-7a666ce631c0",
-  "wallet": "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
-  "chain": "Base (8453)",
-  "token": "SCRIPT",
-  "website": "https://www.scriptmasterlabs.com/",
-  "sdvosb": {"uei": "G24VZA4RLMK3", "cage": "21U51"},
-  "total_endpoints": 40,
-  "subscription": {
-    "name": "starter",
-    "price_usd": 49,
-    "duration_days": 30,
-    "covers": "34 endpoints at $0.03-$0.50 per call"
+  "agent": {
+    "name": "scriptmasterlabs",
+    "id": "019f5f40-c194-7776-b5e1-7a666ce631c0",
+    "rating": "5.00",
+    "description": "40 live API endpoints. Government data, crypto analytics, compliance. SAM.gov SDVOSB registered.",
+    "website": "https://timwal78.github.io/acp-provider/"
   },
-  "premium_subscription": {
-    "name": "premium",
-    "price_usd": 49,
-    "duration_days": 30,
-    "covers": "6 premium endpoints at $0.30-$5.00 per call"
-  },
-  "categories": {
-    "government_data": ["fec_campaign_finance","epa_environmental_violations","ai_fact_check","fda_warning_letters","fda_drug_recall_alert","sec_10_q_quarterly_filing","fred_economic_indicators","sec_13f_institutional_holdings","sec_13d_13g_activist_filings","osha_inspection_records","fda_adverse_events_report","sec_insider_trade_intel","sec_10_k_annual_filing","congressional_bills_search","sec_8_k_real_time_filings","lobbying_disclosures","federal_contract_opportunities","federal_award_history","sdvosb_setaside_feed","sam_entity_verification","federal_spending_by_agency","excluded_parties_check"],
-    "government_data_count": 22,
-    "crypto_defi": ["perp_funding_aggregator","market_regime_indicator","defi_yield_rates","crypto_market_overview","crypto_price_lookup","stablecoin_flow_tracker","defi_tvl_ranking","crypto_onchain_analytics","crypto_sentiment_scanner","dex_volume_ranking","token_security_audit","whale_wallet_tracker"],
-    "crypto_defi_count": 12,
-    "compliance_premium": ["entity_compliance_check","druckenmiller_macro_regime_analysis","compliance_anomaly_report","compliance_bank_audit","market_intelligence_feed","compliance_regulator_query"],
-    "compliance_premium_count": 6
-  },
-  "endpoints": [
-    {"name":"fec_campaign_finance","description":"FEC campaign finance — candidates, committees, and contribution totals by election cycle. Req: { name?: string, committee?: string, cycle?: string }","price_usd":0.03,"sla_minutes":60,"subscription":"starter"},
-    {"name":"epa_environmental_violations","description":"EPA ECHO enforcement and environmental violation records — facility inspections and penalties. Req: { facility?: string, state?: string, naics?: string }","price_usd":0.03,"sla_minutes":60,"subscription":"starter"},
-    {"name":"ai_fact_check","description":"Grounding oracle — fact-checks a claim against live government/FDA/SEC/Treasury data. Req: { claim: string, domain?: string }","price_usd":0.03,"sla_minutes":60,"subscription":"starter"},
-    {"name":"fda_warning_letters","description":"FDA warning letters — regulatory enforcement actions for violations of FDA regulations. Req: { company?: string, product?: string, limit?: number }","price_usd":0.03,"sla_minutes":60,"subscription":"starter"},
-    {"name":"fda_drug_recall_alert","description":"FDA drug recall enforcement reports via openFDA. Req: { drug?: string, limit?: number }","price_usd":0.03,"sla_minutes":60,"subscription":"starter"},
-    {"name":"sec_10_q_quarterly_filing","description":"SEC EDGAR 10-Q quarterly report filing history by ticker. Links to full 10-Q documents on sec.gov. Req: { ticker: string, limit?: number }","price_usd":0.03,"sla_minutes":60,"subscription":"starter"},
-    {"name":"fred_economic_indicators","description":"FRED economic indicator series (Federal Reserve Bank of St. Louis) — GDP, CPI, UNRATE, FEDFUNDS, and 800k+ others. Req: { series_id: string, limit?: number }","price_usd":0.03,"sla_minutes":60,"subscription":"starter"},
-    {"name":"sec_13f_institutional_holdings","description":"SEC EDGAR 13F-HR hedge fund and institutional quarterly position filings. Req: { cik?: string, name?: string }","price_usd":0.03,"sla_minutes":60,"subscription":"starter"},
-    {"name":"sec_13d_13g_activist_filings","description":"SEC EDGAR 13D and 13G activist investor filings — who holds 5%+ stakes in a company. Req: { ticker: string, limit?: number }","price_usd":0.03,"sla_minutes":60,"subscription":"starter"},
-    {"name":"osha_inspection_records","description":"OSHA workplace inspection and violation records (DOL enforcement data). Req: { establishment?: string, naics?: string, state?: string, limit?: number }","price_usd":0.03,"sla_minutes":60,"subscription":"starter"},
-    {"name":"fda_adverse_events_report","description":"FDA FAERS adverse events for a drug. Req: { drug: string }","price_usd":0.03,"sla_minutes":60,"subscription":"starter"},
-    {"name":"sec_insider_trade_intel","description":"SEC Form 4 insider trading activity for any ticker. Req: { ticker: string }","price_usd":0.03,"sla_minutes":60,"subscription":"starter"},
-    {"name":"sec_10_k_annual_filing","description":"SEC EDGAR 10-K annual report filing history by ticker. Links to full 10-K documents on sec.gov. Req: { ticker: string, limit?: number }","price_usd":0.03,"sla_minutes":60,"subscription":"starter"},
-    {"name":"congressional_bills_search","description":"Congress.gov bill search — legislation by keyword, congress number, and status. Req: { query: string, congress?: string, limit?: number }","price_usd":0.03,"sla_minutes":60,"subscription":"starter"},
-    {"name":"sec_8_k_real_time_filings","description":"Real-time SEC 8-K material event filings for any ticker. Req: { ticker: string }","price_usd":0.03,"sla_minutes":60,"subscription":"starter"},
-    {"name":"lobbying_disclosures","description":"Senate LDA lobbying disclosure filings — client, registrant, issue codes, and amounts. Req: { client?: string, registrant?: string, issue?: string, limit?: number }","price_usd":0.03,"sla_minutes":60,"subscription":"starter"},
-    {"name":"perp_funding_aggregator","description":"Live Hyperliquid funding rates, open interest, mark prices, and volume across 232 perp markets. Sort by OI, filter by symbol. Req: { top_n?: int, symbol?: string }","price_usd":0.5,"sla_minutes":5,"subscription":"starter"},
-    {"name":"market_regime_indicator","description":"Crypto market regime: Fear & Greed index, global market cap, BTC/ETH dominance, 7-day F&G history, regime classification (EXTREME_FEAR/GREED/NEUTRAL) with trade signal. Req: {}","price_usd":0.5,"sla_minutes":5,"subscription":"starter"},
-    {"name":"defi_yield_rates","description":"Top DeFi yield pools by risk-adjusted APY across 15000+ pools. Filter by chain, project, min APY, min TVL. Includes IL risk and risk scores. Req: { top_n?: int, min_apy?: float, min_tvl?: float, chain?: string, project?: string }","price_usd":0.3,"sla_minutes":5,"subscription":"starter"},
-    {"name":"crypto_market_overview","description":"Top crypto coins by market cap with price, volume, 24h/7d change, ATH, circulating supply. Up to 250 coins per page. Req: { per_page?: int, page?: int, order?: string }","price_usd":0.2,"sla_minutes":5,"subscription":"starter"},
-    {"name":"crypto_price_lookup","description":"Real-time prices for any crypto tokens. Pass comma-separated CoinGecko IDs. Returns price, 24h change, market cap, volume. Req: { tokens: string }","price_usd":0.15,"sla_minutes":5,"subscription":"starter"},
-    {"name":"stablecoin_flow_tracker","description":"Stablecoin market cap, supply, volume, and DEX flow data for USDT, USDC, DAI, FRAX, TUSD, FDUSD, USDP. Includes stablecoin dominance % and global context. Req: {}","price_usd":0.25,"sla_minutes":30,"subscription":"starter"},
-    {"name":"defi_tvl_ranking","description":"DeFi protocol TVL rankings with 24h/7d/1m changes. 7800+ protocols. Filter by category and chain. Req: { top_n?: int, category?: string, chain?: string }","price_usd":0.3,"sla_minutes":5,"subscription":"starter"},
-    {"name":"federal_contract_opportunities","description":"Active federal contract awards from USAspending.gov. Who won what, for how much. Filter by agency, NAICS code, min amount. Req: { top_n?: int, agency?: string, naics?: string, min_amount?: float }","price_usd":0.5,"sla_minutes":5,"subscription":"starter"},
-    {"name":"federal_award_history","description":"Contract award history by contractor name from USAspending.gov. 5 years of awards. Req: { contractor_name: string, top_n?: int }","price_usd":0.35,"sla_minutes":5,"subscription":"starter"},
-    {"name":"sdvosb_setaside_feed","description":"SDVOSB/VOSB set-aside contract awards from USAspending.gov. Veteran-owned business opportunities. Your unique federal contracting moat. Req: { top_n?: int, agency?: string }","price_usd":0.75,"sla_minutes":5,"subscription":"starter"},
-    {"name":"sam_entity_verification","description":"Verify federal contractor entity via USAspending.gov. Returns entity name, UEI, DUNS, recipient level. Req: { entity_name: string }","price_usd":0.4,"sla_minutes":5,"subscription":"starter"},
-    {"name":"federal_spending_by_agency","description":"Federal spending breakdown by agency from USAspending.gov. Total obligations, outlays, budget authority for 111 agencies. Req: { fiscal_year?: int }","price_usd":0.3,"sla_minutes":5,"subscription":"starter"},
-    {"name":"excluded_parties_check","description":"Check federal contractor entity for exclusion/debarment indicators. Cross-reference USAspending.gov recipient and award records. Req: { entity_name: string }","price_usd":0.25,"sla_minutes":5,"subscription":"starter"},
-    {"name":"crypto_onchain_analytics","description":"On-chain token analytics via DexScreener. Price, volume, liquidity, FDV, market cap, txns for any token by contract address. Req: { token_address: string, chain?: string }","price_usd":0.4,"sla_minutes":5,"subscription":"starter"},
-    {"name":"crypto_sentiment_scanner","description":"Crypto market sentiment: Fear & Greed index, regime classification, 7d history, token-specific volume sentiment. Req: { token_symbol?: string }","price_usd":0.35,"sla_minutes":5,"subscription":"starter"},
-    {"name":"dex_volume_ranking","description":"DEX trading volume rankings by protocol via DefiLlama. Uniswap, PancakeSwap, etc. with 24h/7d volume. Req: { top_n?: int }","price_usd":0.25,"sla_minutes":5,"subscription":"starter"},
-    {"name":"token_security_audit","description":"Token contract security audit via GoPlus Labs. Honeypot detection, rugpull risk, buy/sell taxes, ownership analysis, risk score. Req: { chain_id: int, token_address: string }","price_usd":0.3,"sla_minutes":5,"subscription":"starter"},
-    {"name":"whale_wallet_tracker","description":"Track high-volume trading pairs via DexScreener as whale activity proxy. Volume, liquidity, txns, price changes. Req: { query: string, top_n?: int }","price_usd":0.4,"sla_minutes":5,"subscription":"starter"},
-    {"name":"entity_compliance_check","description":"SAM.gov registration status + exclusion flag + set-aside types + NAICS codes. Req: { uei: string } or { cage: string }","price_usd":0.35,"sla_minutes":60,"subscription":"premium"},
-    {"name":"druckenmiller_macro_regime_analysis","description":"Druckenmiller-style macro regime analysis. Classifies RISK-ON/OFF/TRANSITION, 18-month forward liquidity view (Fed, M2, DXY, stablecoin flows), and a concentrated trade thesis with position-sizing (probe/jugular) across 98 Hyperliquid perps (crypto, equities, commodities, FX, indices). Includes funding rates, risk/reward, hedge matrix. Req: { query: string, assets?: string, timeframe?: short|medium|long }","price_usd":2,"sla_minutes":30,"subscription":"premium"},
-    {"name":"compliance_anomaly_report","description":"Submit a bank compliance anomaly to the Leviathan Matrix swarm for scoring. Req: { bank_id: string, agent_id: string, trigger: string, detail: string, severity?: string }","price_usd":5,"sla_minutes":60,"subscription":"premium"},
-    {"name":"compliance_bank_audit","description":"Full Leviathan Matrix compliance audit cycle for a bank. Req: { bank_id: string }","price_usd":5,"sla_minutes":60,"subscription":"premium"},
-    {"name":"market_intelligence_feed","description":"Real-time market intelligence data feed via USAspending.gov. Req: { symbol: string }","price_usd":0.3,"sla_minutes":60,"subscription":"premium"},
-    {"name":"compliance_regulator_query","description":"Real-time regulator compliance dashboard query for a bank. Req: { bank_id: string }","price_usd":2.5,"sla_minutes":60,"subscription":"premium"}
+  "offerings": [
+    {
+      "name": "fec_campaign_finance",
+      "description": "FEC campaign finance \u2014 candidates, committees, and contribution totals by election cycle. Req: { name?: string, committee?: string, cycle?: string }",
+      "price": 0.01,
+      "sla_minutes": 60,
+      "requirements": "FEC campaign finance \u2014 candidates, committees, and contribution totals by election cycle. Req: { name?: string, committee?: string, cycle?: string }"
+    },
+    {
+      "name": "epa_environmental_violations",
+      "description": "EPA ECHO enforcement and environmental violation records \u2014 facility inspections and penalties. Req: { facility?: string, state?: string, naics?: string }",
+      "price": 0.01,
+      "sla_minutes": 60,
+      "requirements": "EPA ECHO enforcement and environmental violation records \u2014 facility inspections and penalties. Req: { facility?: string, state?: string, naics?: string }"
+    },
+    {
+      "name": "ai_fact_check",
+      "description": "Grounding oracle \u2014 fact-checks any claim against live government data (FDA, SEC, Treasury, EPA). AI hallucination prevention via real-time government source verification. Req: { claim: string, domain?: string }",
+      "price": 0.01,
+      "sla_minutes": 60,
+      "requirements": "Grounding oracle \u2014 fact-checks a claim against live government/FDA/SEC/Treasury data. Req: { claim: string, domain?: string }"
+    },
+    {
+      "name": "fda_warning_letters",
+      "description": "FDA warning letters \u2014 regulatory enforcement actions for violations of FDA regulations. Req: { company?: string, product?: string, limit?: number }",
+      "price": 0.01,
+      "sla_minutes": 60,
+      "requirements": "FDA warning letters \u2014 regulatory enforcement actions for violations of FDA regulations. Req: { company?: string, product?: string, limit?: number }"
+    },
+    {
+      "name": "fda_drug_recall_alert",
+      "description": "FDA drug recall enforcement reports via openFDA. Req: { drug?: string, limit?: number }",
+      "price": 0.01,
+      "sla_minutes": 60,
+      "requirements": "FDA drug recall enforcement reports via openFDA. Req: { drug?: string, limit?: number }"
+    },
+    {
+      "name": "sec_10_q_quarterly_filing",
+      "description": "SEC EDGAR 10-Q quarterly report filing history by ticker. Get quarterly financial filings for any public company. Links to full 10-Q documents on sec.gov. Req: { ticker: string, limit?: number }",
+      "price": 0.01,
+      "sla_minutes": 60,
+      "requirements": "SEC EDGAR 10-Q quarterly report filing history by ticker. Links to full 10-Q documents on sec.gov. Req: { ticker: string, limit?: number }"
+    },
+    {
+      "name": "fred_economic_indicators",
+      "description": "FRED economic indicator series from the Federal Reserve Bank of St. Louis. Get GDP, CPI, unemployment rate, fed funds rate, and 800k+ other economic data series. Real-time U.S. economic indicators. Req: { series_id: string, limit?: number }",
+      "price": 0.01,
+      "sla_minutes": 60,
+      "requirements": "FRED economic indicator series (Federal Reserve Bank of St. Louis) \u2014 GDP, CPI, UNRATE, FEDFUNDS, and 800k+ others. Req: { series_id: string, limit?: number }"
+    },
+    {
+      "name": "sec_13f_institutional_holdings",
+      "description": "SEC EDGAR 13F-HR hedge fund and institutional quarterly position filings. Req: { cik?: string, name?: string }",
+      "price": 0.01,
+      "sla_minutes": 60,
+      "requirements": "SEC EDGAR 13F-HR hedge fund and institutional quarterly position filings. Req: { cik?: string, name?: string }"
+    },
+    {
+      "name": "sec_13d_13g_activist_filings",
+      "description": "SEC EDGAR 13D and 13G activist investor filings \u2014 who holds 5%+ stakes in a company. Req: { ticker: string, limit?: number }",
+      "price": 0.01,
+      "sla_minutes": 60,
+      "requirements": "SEC EDGAR 13D and 13G activist investor filings \u2014 who holds 5%+ stakes in a company. Req: { ticker: string, limit?: number }"
+    },
+    {
+      "name": "osha_inspection_records",
+      "description": "OSHA workplace inspection and violation records (DOL enforcement data). Req: { establishment?: string, naics?: string, state?: string, limit?: number }",
+      "price": 0.01,
+      "sla_minutes": 60,
+      "requirements": "OSHA workplace inspection and violation records (DOL enforcement data). Req: { establishment?: string, naics?: string, state?: string, limit?: number }"
+    },
+    {
+      "name": "fda_adverse_events_report",
+      "description": "FDA FAERS adverse events for a drug. Req: { drug: string }",
+      "price": 0.01,
+      "sla_minutes": 60,
+      "requirements": "FDA FAERS adverse events for a drug. Req: { drug: string }"
+    },
+    {
+      "name": "sec_insider_trade_intel",
+      "description": "SEC Form 4 insider trading activity for any ticker. Track executive buys, sells, and option exercises. Real-time insider trading data from SEC EDGAR. Req: { ticker: string }",
+      "price": 0.01,
+      "sla_minutes": 60,
+      "requirements": "SEC Form 4 insider trading activity for any ticker. Req: { ticker: string }"
+    },
+    {
+      "name": "sec_10_k_annual_filing",
+      "description": "SEC EDGAR 10-K annual report filing history by ticker. Get annual financial filings for any public company. Links to full 10-K documents on sec.gov. Req: { ticker: string, limit?: number }",
+      "price": 0.01,
+      "sla_minutes": 60,
+      "requirements": "SEC EDGAR 10-K annual report filing history by ticker. Links to full 10-K documents on sec.gov. Req: { ticker: string, limit?: number }"
+    },
+    {
+      "name": "congressional_bills_search",
+      "description": "Congress.gov bill search \u2014 legislation by keyword, congress number, and status. Req: { query: string, congress?: string, limit?: number }",
+      "price": 0.01,
+      "sla_minutes": 60,
+      "requirements": "Congress.gov bill search \u2014 legislation by keyword, congress number, and status. Req: { query: string, congress?: string, limit?: number }"
+    },
+    {
+      "name": "sec_8_k_real_time_filings",
+      "description": "Real-time SEC 8-K material event filings for any ticker. Get corporate disclosures, earnings announcements, M&A events, CEO changes as they happen. Req: { ticker: string }",
+      "price": 0.01,
+      "sla_minutes": 60,
+      "requirements": "Real-time SEC 8-K material event filings for any ticker. Req: { ticker: string }"
+    },
+    {
+      "name": "lobbying_disclosures",
+      "description": "Senate LDA lobbying disclosure filings \u2014 client, registrant, issue codes, and amounts. Req: { client?: string, registrant?: string, issue?: string, limit?: number }",
+      "price": 0.01,
+      "sla_minutes": 60,
+      "requirements": "Senate LDA lobbying disclosure filings \u2014 client, registrant, issue codes, and amounts. Req: { client?: string, registrant?: string, issue?: string, limit?: number }"
+    },
+    {
+      "name": "perp_funding_aggregator",
+      "description": "Live Hyperliquid perpetual futures funding rates, open interest, mark prices, and volume across 232 perp markets. Real-time funding rate data for crypto traders and algorithms. Sort by OI, filter by symbol (BTC, ETH, SOL). Ideal for trading bots, DeFi analytics, and market making. Req: { top_n?: int, symbol?: string }",
+      "price": 0.05,
+      "sla_minutes": 5,
+      "requirements": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "top_n": {
+            "type": "integer",
+            "description": "Number of top markets to return (default 50)"
+          },
+          "symbol": {
+            "type": "string",
+            "description": "Filter by symbol (e.g. BTC, ETH)"
+          }
+        }
+      }
+    },
+    {
+      "name": "market_regime_indicator",
+      "description": "Crypto market regime indicator: Fear & Greed index, global market cap, BTC/ETH dominance, 7-day F&G history, regime classification (EXTREME_FEAR/GREED/NEUTRAL) with trade signal. Real-time crypto market sentiment data for trading decisions. Req: {}",
+      "price": 0.05,
+      "sla_minutes": 5,
+      "requirements": {
+        "type": "object",
+        "required": [],
+        "properties": {}
+      }
+    },
+    {
+      "name": "defi_yield_rates",
+      "description": "Top DeFi yield pools by risk-adjusted APY across 15000+ pools. Find the best crypto staking and farming yields. Filter by chain, project, min APY, min TVL. Includes risk scores. Req: { top_n?: int, min_apy?: float, min_tvl?: float, chain?: string, project?: string }",
+      "price": 0.05,
+      "sla_minutes": 5,
+      "requirements": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "chain": {
+            "type": "string",
+            "description": "Filter by chain (e.g. Ethereum, Arbitrum)"
+          },
+          "top_n": {
+            "type": "integer",
+            "description": "Max pools to return (default 50)"
+          },
+          "min_apy": {
+            "type": "number",
+            "description": "Minimum APY % (default 0)"
+          },
+          "min_tvl": {
+            "type": "number",
+            "description": "Minimum TVL in USD (default 1000000)"
+          },
+          "project": {
+            "type": "string",
+            "description": "Filter by protocol name"
+          }
+        }
+      }
+    },
+    {
+      "name": "defi_tvl_ranking",
+      "description": "DeFi protocol TVL rankings with 24h/7d/1m changes. 7800+ protocols. Filter by category and chain. Req: { top_n?: int, category?: string, chain?: string }",
+      "price": 0.05,
+      "sla_minutes": 5,
+      "requirements": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "chain": {
+            "type": "string",
+            "description": "Filter by chain"
+          },
+          "top_n": {
+            "type": "integer",
+            "description": "Max protocols to return (default 50)"
+          },
+          "category": {
+            "type": "string",
+            "description": "Filter by category (e.g. Lending, DEX, Liquid Staking)"
+          }
+        }
+      }
+    },
+    {
+      "name": "federal_contract_opportunities",
+      "description": "Active federal contract awards from USAspending.gov. See who won what government contract, for how much, from which agency. Filter by agency, NAICS code, min amount. Real-time federal procurement data. Req: { top_n?: int, agency?: string, naics?: string, min_amount?: float }",
+      "price": 0.15,
+      "sla_minutes": 5,
+      "requirements": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "naics": {
+            "type": "string",
+            "description": "Filter by NAICS code"
+          },
+          "top_n": {
+            "type": "integer",
+            "description": "Max awards to return (default 20)"
+          },
+          "agency": {
+            "type": "string",
+            "description": "Filter by awarding agency name"
+          },
+          "min_amount": {
+            "type": "number",
+            "description": "Minimum award amount in USD"
+          }
+        }
+      }
+    },
+    {
+      "name": "federal_award_history",
+      "description": "Contract award history by contractor name from USAspending.gov. 5 years of awards. Req: { contractor_name: string, top_n?: int }",
+      "price": 0.1,
+      "sla_minutes": 5,
+      "requirements": {
+        "type": "object",
+        "required": [
+          "contractor_name"
+        ],
+        "properties": {
+          "top_n": {
+            "type": "integer",
+            "description": "Max awards to return (default 20)"
+          },
+          "contractor_name": {
+            "type": "string",
+            "description": "Contractor/recipient name to search"
+          }
+        }
+      }
+    },
+    {
+      "name": "sdvosb_setaside_feed",
+      "description": "SDVOSB/VOSB set-aside contract awards from USAspending.gov. Veteran-owned business federal contracting opportunities. Unique data from a SAM.gov registered SDVOSB (UEI G24VZA4RLMK3). Req: { top_n?: int, agency?: string }",
+      "price": 0.25,
+      "sla_minutes": 5,
+      "requirements": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "top_n": {
+            "type": "integer",
+            "description": "Max awards to return (default 20)"
+          },
+          "agency": {
+            "type": "string",
+            "description": "Filter by awarding agency"
+          }
+        }
+      }
+    },
+    {
+      "name": "sam_entity_verification",
+      "description": "Verify federal contractor entity via USAspending.gov. Returns entity name, UEI, DUNS, recipient level. Req: { entity_name: string }",
+      "price": 0.1,
+      "sla_minutes": 5,
+      "requirements": {
+        "type": "object",
+        "required": [
+          "entity_name"
+        ],
+        "properties": {
+          "entity_name": {
+            "type": "string",
+            "description": "Entity/contractor name to verify"
+          }
+        }
+      }
+    },
+    {
+      "name": "federal_spending_by_agency",
+      "description": "Federal spending breakdown by agency from USAspending.gov. Total obligations, outlays, budget authority for 111 agencies. Req: { fiscal_year?: int }",
+      "price": 0.1,
+      "sla_minutes": 5,
+      "requirements": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "fiscal_year": {
+            "type": "integer",
+            "description": "Fiscal year (default 2025)"
+          }
+        }
+      }
+    },
+    {
+      "name": "excluded_parties_check",
+      "description": "Check federal contractor entity for exclusion/debarment indicators. Cross-reference USAspending.gov recipient and award records. Req: { entity_name: string }",
+      "price": 0.05,
+      "sla_minutes": 5,
+      "requirements": {
+        "type": "object",
+        "required": [
+          "entity_name"
+        ],
+        "properties": {
+          "entity_name": {
+            "type": "string",
+            "description": "Entity name to check for exclusions"
+          }
+        }
+      }
+    },
+    {
+      "name": "token_security_audit",
+      "description": "Token contract security audit via GoPlus Labs. Honeypot detection, rugpull risk, buy/sell taxes, ownership analysis, risk score. Protect DeFi users from scam tokens. Req: { chain_id: int, token_address: string }",
+      "price": 0.05,
+      "sla_minutes": 5,
+      "requirements": {
+        "type": "object",
+        "required": [
+          "chain_id",
+          "token_address"
+        ],
+        "properties": {
+          "chain_id": {
+            "type": "integer",
+            "description": "Blockchain chain ID (1=Ethereum, 8453=Base, 56=BSC)"
+          },
+          "token_address": {
+            "type": "string",
+            "description": "Token contract address to audit"
+          }
+        }
+      }
+    },
+    {
+      "name": "druckenmiller_macro_regime_analysis",
+      "description": "Druckenmiller-style macro regime analysis. Classifies RISK-ON/OFF/TRANSITION, 18-month forward liquidity view (Fed, M2, DXY, stablecoin flows), concentrated trade thesis with position-sizing across 98 Hyperliquid perps (crypto, equities, commodities, FX, indices). Professional-grade macro trading analysis. Req: { query: string, assets?: string, timeframe?: short|medium|long }",
+      "price": 1,
+      "sla_minutes": 30,
+      "requirements": {
+        "type": "object",
+        "required": [
+          "query"
+        ],
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "The macro question or market scenario to analyze (e.g. \"What is the regime and best trade for a Fed pivot?\")"
+          },
+          "assets": {
+            "type": "string",
+            "description": "Optional comma-separated tickers to focus analysis on (e.g. BTC,xyz:GOLD,xyz:DXY,xyz:NVDA)"
+          },
+          "timeframe": {
+            "enum": [
+              "short",
+              "medium",
+              "long"
+            ],
+            "type": "string",
+            "description": "Analysis horizon: short (days), medium (weeks), long (18-month forward view)"
+          }
+        }
+      }
+    },
+    {
+      "name": "compliance_anomaly_report",
+      "description": "Submit a bank compliance anomaly to the Leviathan Matrix swarm for scoring. Req: { bank_id: string, agent_id: string, trigger: string, detail: string, severity?: string }",
+      "price": 2,
+      "sla_minutes": 60,
+      "requirements": "Submit a bank compliance anomaly to the Leviathan Matrix swarm for scoring. Req: { bank_id: string, agent_id: string, trigger: string, detail: string, severity?: string }"
+    },
+    {
+      "name": "compliance_bank_audit",
+      "description": "Full Leviathan Matrix compliance audit cycle for a bank. Req: { bank_id: string }",
+      "price": 2,
+      "sla_minutes": 60,
+      "requirements": "Full Leviathan Matrix compliance audit cycle for a bank. Req: { bank_id: string }"
+    },
+    {
+      "name": "compliance_regulator_query",
+      "description": "Real-time regulator compliance dashboard query for a bank. Req: { bank_id: string }",
+      "price": 1,
+      "sla_minutes": 60,
+      "requirements": "Real-time regulator compliance dashboard query for a bank. Req: { bank_id: string }"
+    },
+    {
+      "name": "entity_compliance_check",
+      "description": "SAM.gov registration status + exclusion flag + set-aside types + NAICS codes. Req: { uei: string } or { cage: string }",
+      "price": 0.15,
+      "sla_minutes": 60,
+      "requirements": "SAM.gov registration status + exclusion flag + set-aside types + NAICS codes. Req: { uei: string } or { cage: string }"
+    },
+    {
+      "name": "rugpull_detector",
+      "description": "Rugpull risk detection with honeypot check, buy/sell tax analysis, liquidity lock status, and contract ownership analysis. Returns risk score and detailed risk factors. Req: { token: string, chain?: string }",
+      "price": 0.01,
+      "sla_minutes": 5,
+      "requirements": {
+        "type": "object",
+        "required": [
+          "token"
+        ],
+        "properties": {
+          "chain": {
+            "type": "string",
+            "description": "Chain name (ethereum, base, bsc, arbitrum)"
+          },
+          "token": {
+            "type": "string",
+            "description": "Token contract address to check"
+          }
+        }
+      }
+    },
+    {
+      "name": "smart_money_alerts",
+      "description": "Smart money wallet movements and alerts. Tracks large transactions from known smart money wallets. Returns recent buys, sells, and position changes by token. Req: { limit?: int, token?: string }",
+      "price": 0.01,
+      "sla_minutes": 5,
+      "requirements": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Max alerts to return (default 20)"
+          },
+          "token": {
+            "type": "string",
+            "description": "Filter by token symbol or address"
+          }
+        }
+      }
+    },
+    {
+      "name": "liquidation_risk_check",
+      "description": "Check liquidation risk for leveraged DeFi positions. Returns health factor, liquidation price, collateral ratio, and risk level for any wallet with DeFi borrowing. Req: { wallet: string, chain?: string }",
+      "price": 0.01,
+      "sla_minutes": 5,
+      "requirements": {
+        "type": "object",
+        "required": [
+          "wallet"
+        ],
+        "properties": {
+          "chain": {
+            "type": "string",
+            "description": "Filter by chain (ethereum, arbitrum, base)"
+          },
+          "wallet": {
+            "type": "string",
+            "description": "Wallet address to check"
+          }
+        }
+      }
+    },
+    {
+      "name": "trending_tokens",
+      "description": "Trending tokens right now by volume surge and momentum. Returns top gainers, volume spikes, and newly trending tokens with price, volume, 24h change. Req: { chain?: string, limit?: int }",
+      "price": 0.01,
+      "sla_minutes": 5,
+      "requirements": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "chain": {
+            "type": "string",
+            "description": "Filter by chain (ethereum, base, solana, arbitrum, bsc)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max tokens to return (default 20)"
+          }
+        }
+      }
+    },
+    {
+      "name": "gas_tracker",
+      "description": "Multi-chain gas prices with USD cost estimates. Ethereum, Base, Arbitrum, Optimism, BSC, Polygon. Returns current gas in gwei, USD cost for common tx types, and historical trend. Req: { chain?: string }",
+      "price": 0.01,
+      "sla_minutes": 5,
+      "requirements": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "chain": {
+            "type": "string",
+            "description": "Filter by chain name (ethereum, base, arbitrum, optimism, bsc, polygon)"
+          }
+        }
+      }
+    },
+    {
+      "name": "new_token_detection",
+      "description": "Recently listed new tokens with safety pre-check. Returns tokens listed in the last 24-48h with liquidity, volume, and basic safety flags. Req: { hours?: int, chain?: string }",
+      "price": 0.01,
+      "sla_minutes": 5,
+      "requirements": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "chain": {
+            "type": "string",
+            "description": "Filter by chain (ethereum, base, solana, arbitrum, bsc)"
+          },
+          "hours": {
+            "type": "integer",
+            "description": "Hours to look back (default 24)"
+          }
+        }
+      }
+    },
+    {
+      "name": "wallet_analyzer",
+      "description": "Wallet reputation and portfolio health analysis. Returns net worth, token holdings, risk score, DeFi positions, and behavioral flags. Req: { address: string, chain?: string }",
+      "price": 0.01,
+      "sla_minutes": 5,
+      "requirements": {
+        "type": "object",
+        "required": [
+          "address"
+        ],
+        "properties": {
+          "chain": {
+            "type": "string",
+            "description": "Filter by chain (ethereum, base, solana, arbitrum, bsc)"
+          },
+          "address": {
+            "type": "string",
+            "description": "Wallet address to analyze"
+          }
+        }
+      }
+    },
+    {
+      "name": "airdrop_check",
+      "description": "Check any wallet for eligible airdrops across Ethereum, Base, Solana, Arbitrum. Returns claimable amounts, claim deadlines, and claim links. Req: { wallet: string, chain?: string }",
+      "price": 0.01,
+      "sla_minutes": 5,
+      "requirements": {
+        "type": "object",
+        "required": [
+          "wallet"
+        ],
+        "properties": {
+          "chain": {
+            "type": "string",
+            "description": "Filter by chain (ethereum, base, solana, arbitrum)"
+          },
+          "wallet": {
+            "type": "string",
+            "description": "Wallet address to check for airdrops"
+          }
+        }
+      }
+    }
+  ],
+  "subscriptions": [
+    {
+      "name": "basic_monthly",
+      "price": 15,
+      "duration_days": 30
+    },
+    {
+      "name": "compliance_enterprise",
+      "price": 99,
+      "duration_days": 30
+    },
+    {
+      "name": "full_stack_7d",
+      "price": 7,
+      "duration_days": 7
+    },
+    {
+      "name": "full_stack_30d",
+      "price": 25,
+      "duration_days": 30
+    }
   ]
 }
