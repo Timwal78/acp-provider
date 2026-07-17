@@ -4,7 +4,6 @@ services:
     runtime: docker
     plan: starter
     dockerfilePath: ./Dockerfile
-    healthCheckPath: /
     autoDeploy: true
     envVars:
       - key: ACP_CONFIG_JSON
