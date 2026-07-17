@@ -41,9 +41,9 @@ if _env_file.exists():
 
 AGENT_ID = "019f5f40-c194-7776-b5e1-7a666ce631c0"
 CHAIN_ID = 8453
-EVENTS_FILE = "/workspace/acp-provider/events.jsonl"
-LOG_FILE = "/workspace/acp-provider/provider.log"
-STATE_FILE = "/workspace/acp-provider/state.json"
+EVENTS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "events.jsonl")
+LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "provider.log")
+STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "state.json")
 POLL_INTERVAL = 5  # seconds between event drains
 API_TIMEOUT = 15   # seconds for API calls
 
