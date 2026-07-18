@@ -1,15 +1,15 @@
 """
 x402_server.py — x402-compliant (Base/USDC) paid HTTP layer for scriptmasterlabs'
-18 data endpoints.
+40 data endpoints.
 
-provider.py sells the same 18 endpoints, but only through the Virtuals ACP
+provider.py sells the same 40 endpoints, but only through the Virtuals ACP
 marketplace: a headless background worker that listens for on-chain job events
 via `acp events listen` and has no public HTTP surface at all. ACP and x402 are
 different protocols with different discovery surfaces — an x402 indexer (e.g.
-x402scan) has nothing to crawl on the ACP side, which is why those 18
-endpoints never showed up there. This file is the fix: it exposes the exact
-same data functions over real HTTP with the standard x402 402→pay→settle flow,
-so it's actually discoverable and payable by x402/Base agents.
+x402scan) has nothing to crawl on the ACP side. This file is the fix: it
+exposes the exact same data functions over real HTTP with the standard x402
+402→pay→settle flow, so it's actually discoverable and payable by x402/Base
+agents.
 
 Runs as its own Render *web* service, separate from provider.py's *worker*
 service — same repo, same underlying data functions, two independent runtimes.
@@ -25,32 +25,65 @@ from x402_flask import x402_guard, register_x402_discovery
 app = Flask(__name__)
 register_x402_discovery(app)
 
-# USD price per call — mirrors the pricing already published in README.md for
-# the ACP marketplace offerings. Kept here (not added to provider.py) so the
-# ACP-only file stays untouched.
+# USD price per call. x402 HTTP pricing is set independently from the ACP
+# marketplace offering priceValue (ACP prices are micro-USD for agent-to-agent
+# job escrow; x402 prices are per-HTTP-call for direct payer access). Every
+# endpoint in PROVIDER_ENDPOINTS MUST appear here — the assert below enforces
+# it so the server fails loudly on drift instead of silently 404'ing routes.
 _PRICES_USD = {
-    "perp_funding_aggregator":        "0.50",
-    "market_regime_indicator":        "0.50",
-    "defi_yield_rates":               "0.30",
-    "defi_tvl_ranking":               "0.30",
-    "crypto_market_overview":         "0.20",
-    "crypto_price_lookup":            "0.15",
-    "stablecoin_flow_tracker":        "0.25",
-    "federal_contract_opportunities": "0.50",
-    "federal_award_history":          "0.35",
-    "sdvosb_setaside_feed":           "0.75",
-    "sam_entity_verification":        "0.40",
-    "federal_spending_by_agency":     "0.30",
-    "excluded_parties_check":         "0.25",
-    "crypto_onchain_analytics":       "0.40",
-    "crypto_sentiment_scanner":       "0.35",
-    "dex_volume_ranking":             "0.25",
-    "token_security_audit":           "0.30",
-    "whale_wallet_tracker":           "0.40",
+    # --- Crypto analytics (real-time market data) ---
+    "perp_funding_aggregator":          "0.50",
+    "market_regime_indicator":          "0.50",
+    "defi_yield_rates":                 "0.30",
+    "defi_tvl_ranking":                 "0.30",
+    "token_security_audit":             "0.30",
+    "rugpull_detector":                 "0.25",
+    "trending_tokens":                  "0.20",
+    "smart_money_alerts":               "0.25",
+    "new_token_detection":              "0.20",
+    "gas_tracker":                      "0.15",
+    "wallet_analyzer":                  "0.40",
+    "airdrop_check":                    "0.30",
+    "liquidation_risk_check":           "0.35",
+    # --- SEC EDGAR filings ---
+    "sec_10_k_annual_filing":           "0.25",
+    "sec_10_q_quarterly_filing":        "0.25",
+    "sec_8_k_real_time_filings":        "0.30",
+    "sec_insider_trade_intel":          "0.35",
+    "sec_13f_institutional_holdings":   "0.40",
+    "sec_13d_13g_activist_filings":     "0.35",
+    # --- FDA safety ---
+    "fda_warning_letters":              "0.25",
+    "fda_drug_recall_alert":            "0.25",
+    "fda_adverse_events_report":        "0.30",
+    # --- EPA / OSHA enforcement ---
+    "epa_environmental_violations":     "0.30",
+    "osha_inspection_records":          "0.30",
+    # --- FEC / FRED / Congress / Lobbying ---
+    "fec_campaign_finance":             "0.25",
+    "fred_economic_indicators":         "0.25",
+    "congressional_bills_search":       "0.25",
+    "lobbying_disclosures":             "0.30",
+    # --- AI / Compliance / Macro ---
+    "ai_fact_check":                    "0.20",
+    "entity_compliance_check":          "0.40",
+    "druckenmiller_macro_regime_analysis": "1.00",
+    "compliance_anomaly_report":        "2.00",
+    "compliance_bank_audit":            "2.00",
+    "compliance_regulator_query":       "1.00",
+    # --- Federal contracting (USAspending.gov / SAM.gov moat) ---
+    "federal_contract_opportunities":   "0.50",
+    "federal_award_history":            "0.35",
+    "sdvosb_setaside_feed":             "0.75",
+    "sam_entity_verification":          "0.40",
+    "federal_spending_by_agency":       "0.30",
+    "excluded_parties_check":           "0.25",
 }
 
 assert set(_PRICES_USD) == set(PROVIDER_ENDPOINTS), \
-    "x402_server's price map has drifted from provider.py's ENDPOINTS registry"
+    f"x402_server price map drifted from provider.py ENDPOINTS — " \
+    f"missing: {set(PROVIDER_ENDPOINTS) - set(_PRICES_USD)}, " \
+    f"stale: {set(_PRICES_USD) - set(PROVIDER_ENDPOINTS)}"
 
 
 def _coerce_params(raw: dict) -> dict:
