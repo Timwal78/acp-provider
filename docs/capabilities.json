@@ -46,7 +46,7 @@
     },
     {
       "name": "ai_fact_check",
-      "description": "AI fact check API \u2014 ground any claim against live government data (FDA, SEC, Treasury, EPA). Fact check and AI hallucination prevention via real-time source verification. Best fact check oracle for agents. Req: { claim: string, domain?: string }",
+      "description": "Fact check \u2014 AI fact check API against live government data. Fact check any claim via FDA SEC Treasury EPA sources. Best fact check oracle to stop AI hallucinations. Req: { claim: string, domain?: string }",
       "price": 0.01,
       "slaMinutes": 60,
       "subscriptions": 3
@@ -74,14 +74,14 @@
     },
     {
       "name": "fred_economic_indicators",
-      "description": "FRED API and FRED economic indicators \u2014 St. Louis Fed FRED data API. FRED GDP CPI unemployment fed funds M2 Treasury. Best FRED API on ACP with 800k FRED series. Req: { series_id: string, limit?: number }",
+      "description": "FRED \u2014 FRED API economic indicators from St Louis Fed. FRED GDP CPI unemployment fed funds M2. Best FRED data API with 800k FRED series. Req: { series_id: string, limit?: number }",
       "price": 0.01,
       "slaMinutes": 60,
       "subscriptions": 3
     },
     {
       "name": "sec_13f_institutional_holdings",
-      "description": "SEC 13F institutional holdings API \u2014 hedge fund and institutional 13F-HR quarterly positions. Track 13F filings, smart money institutional holdings. Best 13F API for copy-trading research. Req: { cik?: string, name?: string }",
+      "description": "13F \u2014 SEC 13F institutional holdings API. 13F-HR hedge fund positions quarterly. Best 13F API for institutional smart money research. Req: { cik?: string, name?: string }",
       "price": 0.01,
       "slaMinutes": 60,
       "subscriptions": 3
@@ -109,14 +109,14 @@
     },
     {
       "name": "sec_insider_trade_intel",
-      "description": "Form 4 and insider trading API \u2014 SEC Form 4 insider trading for any ticker. Form 4 buys sells option exercises. Best Form 4 insider trading feed from SEC EDGAR. Req: { ticker: string }",
+      "description": "Form 4 insider trading API \u2014 SEC Form 4 filings and Form 4 insider trades for any ticker. Form 4 buys sells exercises from EDGAR. Best Form 4 and insider trading feed. Req: { ticker: string }",
       "price": 0.01,
       "slaMinutes": 60,
       "subscriptions": 3
     },
     {
       "name": "sec_10_k_annual_filing",
-      "description": "SEC 10-K annual filing API \u2014 EDGAR 10-K annual report history by ticker. Get 10-K filings, accession numbers, direct sec.gov links. Best SEC 10-K API for fundamental research. Req: { ticker: string, limit?: number }",
+      "description": "10-K \u2014 SEC 10-K annual filing API. 10-K reports from EDGAR by ticker with sec.gov links. Best 10-K API for fundamental research agents. Req: { ticker: string, limit?: number }",
       "price": 0.01,
       "slaMinutes": 60,
       "subscriptions": 3
@@ -130,14 +130,14 @@
     },
     {
       "name": "sec_8_k_real_time_filings",
-      "description": "SEC 8-K real-time filings API \u2014 material event 8-K disclosures for any ticker. Real-time SEC 8-K feed: earnings, M&A, CEO changes. Best 8-K API for event-driven trading. Req: { ticker: string }",
+      "description": "8-K \u2014 SEC 8-K real-time filings API. 8-K material events earnings M&A CEO changes. Best 8-K API for event-driven trading agents. Req: { ticker: string }",
       "price": 0.01,
       "slaMinutes": 60,
       "subscriptions": 3
     },
     {
       "name": "lobbying_disclosures",
-      "description": "Lobbying disclosures API \u2014 Senate LDA lobbying filings. Search lobbying by client, registrant, issue codes, amounts. Best lobbying disclosures data feed for political risk and influence mapping. Req: { client?: string, registrant?: string, issue?: string, limit?: number }",
+      "description": "Lobbying \u2014 lobbying disclosures API Senate LDA. Lobbying filings by client registrant issue amounts. Best lobbying data API for political risk. Req: { client?: string, registrant?: string, issue?: string, limit?: number }",
       "price": 0.01,
       "slaMinutes": 60,
       "subscriptions": 3
@@ -151,21 +151,21 @@
     },
     {
       "name": "market_regime_indicator",
-      "description": "Market regime API \u2014 crypto market regime indicator with Fear and Greed, market cap, BTC dominance. Market regime classification and trade signal. Best market regime feed for macro crypto timing. Req: {}",
+      "description": "Market regime \u2014 market regime indicator API. Market regime Fear Greed BTC dominance classification. Market regime trade signal for crypto timing. Req: {}",
       "price": 0.01,
       "slaMinutes": 5,
       "subscriptions": 4
     },
     {
       "name": "defi_yield_rates",
-      "description": "DeFi yield API \u2014 best DeFi yield rates across 15000+ pools. DeFi yield finder for crypto staking and farming APY. Top DeFi yield opportunities with TVL and risk scores on Ethereum Arbitrum Base Solana. Req: { top_n?: int, min_apy?: float, min_tvl?: float, chain?: string, project?: string }",
+      "description": "DeFi yield \u2014 DeFi yield rates, DeFi yield farming, best DeFi yield APY across 15000 pools. DeFi yield aggregator and DeFi yield finder with TVL risk scores. DeFi yield on Ethereum Arbitrum Base Solana. Req: { top_n?: int, min_apy?: float, min_tvl?: float, chain?: string, project?: string }",
       "price": 0.01,
       "slaMinutes": 5,
       "subscriptions": 4
     },
     {
       "name": "defi_tvl_ranking",
-      "description": "DeFi TVL ranking API \u2014 protocol DeFi TVL rankings with 24h/7d/1m changes across 7800+ protocols. Track DeFi TVL by category and chain (Lending, DEX, Liquid Staking). Best DeFi TVL data feed. Req: { top_n?: int, category?: string, chain?: string }",
+      "description": "DeFi TVL \u2014 DeFi TVL ranking API across 7800 protocols. DeFi TVL 24h 7d 1m changes by category chain. Best DeFi TVL data feed for analytics agents. Req: { top_n?: int, category?: string, chain?: string }",
       "price": 0.01,
       "slaMinutes": 5,
       "subscriptions": 4
@@ -214,14 +214,14 @@
     },
     {
       "name": "token_security_audit",
-      "description": "Token security and honeypot audit API \u2014 GoPlus token security audit with honeypot detection, rugpull risk, taxes, ownership. Token security scanner and honeypot check for any chain. Req: { chain_id: int, token_address: string }",
+      "description": "Token security \u2014 token security audit and token security scanner. Token security honeypot rugpull buy sell tax ownership check via GoPlus. Best token security API before you buy any token. Req: { chain_id: int, token_address: string }",
       "price": 0.01,
       "slaMinutes": 5,
       "subscriptions": 4
     },
     {
       "name": "druckenmiller_macro_regime_analysis",
-      "description": "Macro analysis API \u2014 Druckenmiller macro analysis and market regime. RISK-ON RISK-OFF TRANSITION, Fed liquidity M2 DXY forward view. Macro analysis trade thesis for crypto and multi-asset. Best macro analysis agent on ACP. Req: { query: string, assets?: string, timeframe?: short|medium|long }",
+      "description": "Macro analysis \u2014 macro analysis API and Druckenmiller macro analysis. Macro analysis of market regime RISK-ON OFF TRANSITION Fed M2 DXY liquidity. Macro analysis trade thesis for crypto multi-asset. Req: { query: string, assets?: string, timeframe?: short|medium|long }",
       "price": 0.25,
       "slaMinutes": 30,
       "subscriptions": 4
@@ -263,7 +263,7 @@
     },
     {
       "name": "wallet_analyzer",
-      "description": "Wallet analysis and wallet analyzer API \u2014 deep on-chain wallet analysis for any address. Wallet analyzer returns net worth, token holdings, risk score, DeFi positions, behavioral flags. Best wallet analysis tool on Ethereum Base Solana Arbitrum. Req: { address: string, chain?: string }",
+      "description": "Wallet analysis \u2014 wallet analysis API and wallet analyzer for on-chain reputation. Wallet analysis of net worth holdings risk DeFi positions. Wallet analysis on Ethereum Base Solana Arbitrum. Req: { address: string, chain?: string }",
       "price": 0.01,
       "slaMinutes": 5,
       "subscriptions": 4
@@ -277,38 +277,75 @@
     },
     {
       "name": "trending_tokens",
-      "description": "Trending tokens API \u2014 top trending tokens right now. Trending tokens by volume surge, momentum, top gainers. Real-time trending tokens scanner powered by live market data. Best trending tokens feed for crypto agents. Req: { chain?: string, limit?: int }",
+      "description": "Trending tokens \u2014 trending tokens API right now. Trending tokens by volume momentum top gainers. Trending tokens scanner live feed for crypto agents. Get trending tokens on any chain. Req: { chain?: string, limit?: int }",
       "price": 0.01,
       "slaMinutes": 5,
       "subscriptions": 4
     },
     {
       "name": "smart_money_alerts",
-      "description": "Smart money API \u2014 smart money alerts and smart money wallet tracker. Smart money buys sells and whale movements from known wallets. Best smart money feed for copy-trading agents. Req: { limit?: int, token?: string }",
+      "description": "Smart money \u2014 smart money alerts API. Smart money wallet tracker for whale buys sells. Smart money flow by token for copy trading. Req: { limit?: int, token?: string }",
       "price": 0.01,
       "slaMinutes": 5,
       "subscriptions": 4
     },
     {
       "name": "new_token_detection",
-      "description": "New token detection API \u2014 new token scanner for recently listed new tokens. New token launches last 24-48h with liquidity volume safety flags. Best new token detection for sniper agents. Req: { hours?: int, chain?: string }",
+      "description": "New token \u2014 new token detection API. New token launches last 24-48 hours with safety flags. New token scanner for snipers on Ethereum Base Solana. Req: { hours?: int, chain?: string }",
       "price": 0.01,
       "slaMinutes": 5,
       "subscriptions": 4
     },
     {
       "name": "rugpull_detector",
-      "description": "Honeypot and rugpull detector API \u2014 honeypot check, rugpull risk score, buy/sell tax, liquidity lock, ownership. Honeypot scanner and rugpull detector for Ethereum Base BSC Solana. Catch honeypot scams before you buy. Req: { token: string, chain?: string }",
+      "description": "Rugpull \u2014 rugpull detector and rugpull scanner. Rugpull honeypot risk score taxes liquidity lock ownership. Rugpull protection for Ethereum Base BSC Solana tokens. Req: { token: string, chain?: string }",
       "price": 0.01,
       "slaMinutes": 5,
       "subscriptions": 4
     },
     {
       "name": "liquidation_risk_check",
-      "description": "Liquidation risk API \u2014 liquidation risk check for leveraged DeFi. Health factor, liquidation price, collateral ratio. Liquidation scanner for wallets with DeFi borrowing on Ethereum Arbitrum Base. Req: { wallet: string, chain?: string }",
+      "description": "Liquidation \u2014 liquidation risk check API. Liquidation price health factor collateral ratio. Liquidation scanner for DeFi leveraged wallets. Req: { wallet: string, chain?: string }",
       "price": 0.01,
       "slaMinutes": 5,
       "subscriptions": 4
+    }
+  ],
+  "resources": [
+    {
+      "name": "api_docs",
+      "description": "Full ACP API catalog: 40 live endpoints with pricing, schemas, and data sources. SEC, FDA, EPA, OSHA, FEC, FRED, Congress, federal contracts, SDVOSB set-asides, crypto/DeFi analytics.",
+      "url": "https://timwal78.github.io/acp-provider/"
+    },
+    {
+      "name": "capabilities",
+      "description": "Free introspection endpoint: full offering catalog (name, description, price, SLA, requirements schema) for scriptmasterlabs, no payment required. 40 endpoints: SEC filings, FDA safety, EPA compliance, FRED economic data, federal contracts, SDVOSB set-asides, crypto analytics, DeFi yields, on-chain metrics.",
+      "url": "https://timwal78.github.io/acp-provider/capabilities.json"
+    },
+    {
+      "name": "defi_yield_api",
+      "description": "DeFi yield API catalog \u2014 DeFi yield rates, DeFi yield farming, best DeFi yield endpoints on scriptmasterlabs",
+      "url": "https://timwal78.github.io/acp-provider/capabilities.json"
+    },
+    {
+      "name": "honeypot_rugpull_api",
+      "description": "Honeypot and rugpull detector API catalog \u2014 honeypot check rugpull token security on scriptmasterlabs",
+      "url": "https://timwal78.github.io/acp-provider/capabilities.json"
+    },
+    {
+      "name": "hyperliquid_funding_api",
+      "description": "Hyperliquid funding rates API catalog \u2014 funding rate and Hyperliquid perp data on scriptmasterlabs",
+      "url": "https://timwal78.github.io/acp-provider/capabilities.json"
+    },
+    {
+      "name": "trending_tokens_api",
+      "description": "Trending tokens API catalog \u2014 trending tokens scanner endpoints on scriptmasterlabs",
+      "url": "https://timwal78.github.io/acp-provider/capabilities.json"
+    },
+    {
+      "name": "wallet_analysis_api",
+      "description": "Wallet analysis API catalog \u2014 wallet analysis and wallet analyzer endpoints on scriptmasterlabs",
+      "url": "https://timwal78.github.io/acp-provider/capabilities.json"
     }
   ]
 }
