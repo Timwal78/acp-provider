@@ -40,49 +40,42 @@ echo "[startup] Wrote keyring/file.key"
 # Point ACP_CONFIG_DIR at our config dir
 export ACP_CONFIG_DIR=/opt/acp-config
 
-# The ACP CLI authenticates via JWT tokens in env vars, NOT config files.
-# These must be set for `acp agent whoami` to work.
-if [ -z "$ACP_ACCESS_TOKEN" ]; then
-    echo "[startup] ERROR: ACP_ACCESS_TOKEN env var not set"
-    exit 1
-fi
+# ============================================================
+# AUTH MODEL (simple):
+#   REQUIRED: ACP_REFRESH_TOKEN + ACP_AGENT_WALLET_ADDRESS
+#   OPTIONAL: ACP_ACCESS_TOKEN (seed only; we mint a fresh one on every boot)
+# Never paste JWTs again. Paste the 64-char hex refresh token only.
+# ============================================================
 if [ -z "$ACP_REFRESH_TOKEN" ]; then
-    echo "[startup] ERROR: ACP_REFRESH_TOKEN env var not set"
+    echo "[startup] ERROR: ACP_REFRESH_TOKEN env var not set (64-char hex). This is the ONLY token you need to paste."
     exit 1
 fi
 if [ -z "$ACP_AGENT_WALLET_ADDRESS" ]; then
     echo "[startup] ERROR: ACP_AGENT_WALLET_ADDRESS env var not set"
     exit 1
 fi
-echo "[startup] Auth tokens present (access=${#ACP_ACCESS_TOKEN} chars, refresh=${#ACP_REFRESH_TOKEN} chars)"
 
-# Trim whitespace/newlines from tokens AND the wallet address — copy-paste often
-# adds trailing chars. Missing this on the wallet address was a real bug: it's
-# used verbatim below to build the file-keyring account name
-# ("access-token-" + wallet), and cross-keychain's file backend rejects any
-# account string with a non-alphanumeric/dot/underscore/@/hyphen character —
-# a single trailing space/newline in the env var silently broke every boot's
-# keyring write with an opaque "account contains invalid characters" warning.
-ACP_ACCESS_TOKEN=$(echo -n "$ACP_ACCESS_TOKEN" | tr -d '[:space:]' | tr -d '"' | tr -d "'")
+# Trim copy-paste junk
 ACP_REFRESH_TOKEN=$(echo -n "$ACP_REFRESH_TOKEN" | tr -d '[:space:]' | tr -d '"' | tr -d "'")
 ACP_AGENT_WALLET_ADDRESS=$(echo -n "$ACP_AGENT_WALLET_ADDRESS" | tr -d '[:space:]')
-export ACP_ACCESS_TOKEN ACP_REFRESH_TOKEN ACP_AGENT_WALLET_ADDRESS
-echo "[startup] Tokens trimmed (access=${#ACP_ACCESS_TOKEN} chars, refresh=${#ACP_REFRESH_TOKEN} chars)"
+if [ -n "${ACP_ACCESS_TOKEN:-}" ]; then
+  ACP_ACCESS_TOKEN=$(echo -n "$ACP_ACCESS_TOKEN" | tr -d '[:space:]' | tr -d '"' | tr -d "'")
+else
+  ACP_ACCESS_TOKEN=""
+fi
+export ACP_REFRESH_TOKEN ACP_AGENT_WALLET_ADDRESS ACP_ACCESS_TOKEN
+echo "[startup] Auth inputs: refresh=${#ACP_REFRESH_TOKEN} chars, access_seed=${#ACP_ACCESS_TOKEN} chars, wallet=$ACP_AGENT_WALLET_ADDRESS"
 
-# Auto-heal common paste mistakes:
-# 1) Access token pasted as base64(JWT) instead of raw JWT (len ~272 instead of ~204)
-# 2) Access token pasted as hex(JWT)
-NORMALIZED=$(python3 -c '
+# Normalize accidental base64/hex paste of access seed (legacy)
+if [ -n "$ACP_ACCESS_TOKEN" ]; then
+  ACP_ACCESS_TOKEN=$(ACP_ACCESS_TOKEN="$ACP_ACCESS_TOKEN" python3 -c '
 import os, base64, re, sys
 tok = os.environ.get("ACP_ACCESS_TOKEN", "").strip()
-
 def looks_jwt(s: str) -> bool:
     parts = s.split(".")
     return len(parts) == 3 and all(parts) and s.startswith("eyJ")
-
 if looks_jwt(tok):
     sys.stdout.write(tok); raise SystemExit(0)
-
 if re.fullmatch(r"[0-9a-fA-F]+", tok or "") and len(tok) % 2 == 0:
     try:
         dec = bytes.fromhex(tok).decode("utf-8", errors="strict")
@@ -90,7 +83,6 @@ if re.fullmatch(r"[0-9a-fA-F]+", tok or "") and len(tok) % 2 == 0:
             sys.stdout.write(dec); raise SystemExit(0)
     except Exception:
         pass
-
 for decoder in (base64.b64decode, base64.urlsafe_b64decode):
     try:
         pad = tok + ("=" * (-len(tok) % 4))
@@ -99,15 +91,95 @@ for decoder in (base64.b64decode, base64.urlsafe_b64decode):
             sys.stdout.write(dec); raise SystemExit(0)
     except Exception:
         pass
-
 sys.stdout.write(tok)
 ')
-ACP_ACCESS_TOKEN="$NORMALIZED"
-export ACP_ACCESS_TOKEN
-if [[ "$ACP_ACCESS_TOKEN" == eyJ* ]]; then
-  echo "[startup] Access token normalized (access=${#ACP_ACCESS_TOKEN} chars, jwt=yes)"
+  export ACP_ACCESS_TOKEN
+fi
+
+# Always mint a FRESH access token from refresh on boot (curl, not urllib — Cloudflare).
+# Rotating refresh: save the NEW refresh token back into env for this process.
+#
+# IMPORTANT: ACP refresh tokens ROTATE. Calling refresh invalidates the old refresh
+# stored in Render env. Strategy:
+#   1) If seed access JWT still has >10 minutes left, SKIP refresh (keep env refresh valid)
+#   2) Else refresh once, use new pair for this process lifetime
+#   3) CLI keeps the process alive via keyring; avoid redeploys unless necessary
+echo "[startup] Resolving access token (prefer valid seed; refresh only if needed)..."
+python3 - <<'PY'
+import json, os, sys, subprocess, base64, datetime
+
+def jwt_left_min(tok: str):
+    try:
+        p = tok.split(".")[1]
+        p += "=" * (-len(p) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(p))
+        return (payload.get("exp", 0) - datetime.datetime.utcnow().timestamp()) / 60.0
+    except Exception:
+        return -1e9
+
+seed = (os.environ.get("ACP_ACCESS_TOKEN") or "").strip()
+refresh = (os.environ.get("ACP_REFRESH_TOKEN") or "").strip()
+left = jwt_left_min(seed) if seed.startswith("eyJ") else -1e9
+
+if left >= 10:
+    print(f"[startup] Seed access still valid (left_min={left:.1f}) — skip refresh to preserve Render refresh token")
+    open("/tmp/acp_access_new", "w").write(seed)
+    open("/tmp/acp_refresh_new", "w").write(refresh)
+    os.chmod("/tmp/acp_access_new", 0o600)
+    os.chmod("/tmp/acp_refresh_new", 0o600)
+    raise SystemExit(0)
+
+print(f"[startup] Seed access missing/expired (left_min={left:.1f}) — refreshing via API...")
+path = "/tmp/acp_refresh_payload.json"
+with open(path, "w") as f:
+    json.dump({"refreshToken": refresh}, f)
+
+r = subprocess.run([
+    "curl", "-sS", "--max-time", "25",
+    "-X", "POST", "https://api.acp.virtuals.io/auth/cli/refresh",
+    "-H", "Content-Type: application/json",
+    "-H", "User-Agent: Mozilla/5.0",
+    "-d", f"@{path}",
+], capture_output=True, text=True)
+body = r.stdout or ""
+try:
+    d = json.loads(body)
+except Exception:
+    print(f"[startup] ERROR: refresh non-JSON response: {body[:200]}", file=sys.stderr)
+    sys.exit(2)
+
+data = d.get("data") or d
+access = data.get("token") or data.get("accessToken")
+new_refresh = data.get("refreshToken")
+if not access or not new_refresh:
+    msg = d.get("message") or d.get("error") or body[:200]
+    print(f"[startup] ERROR: refresh failed: {msg}", file=sys.stderr)
+    if left > 0 and seed.startswith("eyJ"):
+        print("[startup] WARNING: using nearly-expired seed access; refresh failed", file=sys.stderr)
+        open("/tmp/acp_access_new", "w").write(seed)
+        open("/tmp/acp_refresh_new", "w").write(refresh)
+        raise SystemExit(0)
+    sys.exit(3)
+
+left2 = jwt_left_min(access)
+print(f"[startup] Refresh OK — access left_min={left2:.1f}, new_refresh_len={len(new_refresh)}")
+print("[startup] NOTE: refresh token rotated for this process. Avoid redeploy until you update ACP_REFRESH_TOKEN if this instance dies.")
+open("/tmp/acp_access_new", "w").write(access)
+open("/tmp/acp_refresh_new", "w").write(new_refresh)
+os.chmod("/tmp/acp_access_new", 0o600)
+os.chmod("/tmp/acp_refresh_new", 0o600)
+PY
+REFRESH_RC=$?
+if [ "$REFRESH_RC" -eq 0 ] && [ -f /tmp/acp_access_new ] && [ -f /tmp/acp_refresh_new ]; then
+  ACP_ACCESS_TOKEN=$(cat /tmp/acp_access_new)
+  ACP_REFRESH_TOKEN=$(cat /tmp/acp_refresh_new)
+  export ACP_ACCESS_TOKEN ACP_REFRESH_TOKEN
+  echo "[startup] Boot tokens ready (access=${#ACP_ACCESS_TOKEN} chars, refresh=${#ACP_REFRESH_TOKEN} chars)"
+elif [ -n "$ACP_ACCESS_TOKEN" ] && [[ "$ACP_ACCESS_TOKEN" == eyJ* ]]; then
+  echo "[startup] WARNING: token resolve failed (rc=$REFRESH_RC); continuing with seed access token"
 else
-  echo "[startup] WARNING: Access token does not look like a JWT after normalize (access=${#ACP_ACCESS_TOKEN} chars)"
+  echo "[startup] ERROR: could not obtain access token. Update ACP_REFRESH_TOKEN in Render env (64-char hex from fresh sign-in)."
+  exit 1
 fi
 
 # Write tokens directly to the file-based keyring using a Node.js script.
