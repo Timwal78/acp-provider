@@ -63,10 +63,52 @@ echo "[startup] Auth tokens present (access=${#ACP_ACCESS_TOKEN} chars, refresh=
 # account string with a non-alphanumeric/dot/underscore/@/hyphen character —
 # a single trailing space/newline in the env var silently broke every boot's
 # keyring write with an opaque "account contains invalid characters" warning.
-ACP_ACCESS_TOKEN=$(echo -n "$ACP_ACCESS_TOKEN" | tr -d '[:space:]')
-ACP_REFRESH_TOKEN=$(echo -n "$ACP_REFRESH_TOKEN" | tr -d '[:space:]')
+ACP_ACCESS_TOKEN=$(echo -n "$ACP_ACCESS_TOKEN" | tr -d '[:space:]' | tr -d '"' | tr -d "'")
+ACP_REFRESH_TOKEN=$(echo -n "$ACP_REFRESH_TOKEN" | tr -d '[:space:]' | tr -d '"' | tr -d "'")
 ACP_AGENT_WALLET_ADDRESS=$(echo -n "$ACP_AGENT_WALLET_ADDRESS" | tr -d '[:space:]')
+export ACP_ACCESS_TOKEN ACP_REFRESH_TOKEN ACP_AGENT_WALLET_ADDRESS
 echo "[startup] Tokens trimmed (access=${#ACP_ACCESS_TOKEN} chars, refresh=${#ACP_REFRESH_TOKEN} chars)"
+
+# Auto-heal common paste mistakes:
+# 1) Access token pasted as base64(JWT) instead of raw JWT (len ~272 instead of ~204)
+# 2) Access token pasted as hex(JWT)
+NORMALIZED=$(python3 -c '
+import os, base64, re, sys
+tok = os.environ.get("ACP_ACCESS_TOKEN", "").strip()
+
+def looks_jwt(s: str) -> bool:
+    parts = s.split(".")
+    return len(parts) == 3 and all(parts) and s.startswith("eyJ")
+
+if looks_jwt(tok):
+    sys.stdout.write(tok); raise SystemExit(0)
+
+if re.fullmatch(r"[0-9a-fA-F]+", tok or "") and len(tok) % 2 == 0:
+    try:
+        dec = bytes.fromhex(tok).decode("utf-8", errors="strict")
+        if looks_jwt(dec):
+            sys.stdout.write(dec); raise SystemExit(0)
+    except Exception:
+        pass
+
+for decoder in (base64.b64decode, base64.urlsafe_b64decode):
+    try:
+        pad = tok + ("=" * (-len(tok) % 4))
+        dec = decoder(pad).decode("utf-8", errors="strict")
+        if looks_jwt(dec):
+            sys.stdout.write(dec); raise SystemExit(0)
+    except Exception:
+        pass
+
+sys.stdout.write(tok)
+')
+ACP_ACCESS_TOKEN="$NORMALIZED"
+export ACP_ACCESS_TOKEN
+if [[ "$ACP_ACCESS_TOKEN" == eyJ* ]]; then
+  echo "[startup] Access token normalized (access=${#ACP_ACCESS_TOKEN} chars, jwt=yes)"
+else
+  echo "[startup] WARNING: Access token does not look like a JWT after normalize (access=${#ACP_ACCESS_TOKEN} chars)"
+fi
 
 # Write tokens directly to the file-based keyring using a Node.js script.
 # This bypasses the native Linux keyring backend which rejects wallet addresses
@@ -96,17 +138,24 @@ const path = require('path');
 const wallet = process.argv[1];
 const accessToken = process.argv[2];
 const refreshToken = process.argv[3];
+const ownerWallet = process.argv[4] || wallet;
 
 // Read the keyring encryption key
 const keyPath = path.join(process.env.XDG_CONFIG_HOME || (path.join(require('os').homedir(), '.config')), 'keyring', 'file.key');
 const key = fs.readFileSync(keyPath);
 
 // Build the store (same structure cross-keychain expects)
+// Write under agent wallet, owner wallet, and bare keys for CLI compatibility.
 const w = wallet.toLowerCase();
+const o = ownerWallet.toLowerCase();
 const store = {
     'acp-auth': {
         ['access-token-' + w]: accessToken,
-        ['refresh-token-' + w]: refreshToken
+        ['refresh-token-' + w]: refreshToken,
+        ['access-token-' + o]: accessToken,
+        ['refresh-token-' + o]: refreshToken,
+        'access-token': accessToken,
+        'refresh-token': refreshToken
     }
 };
 
@@ -122,8 +171,8 @@ const output = Buffer.concat([Buffer.from([1]), iv, authTag, encrypted]);
 const dataPath = path.join(process.env.XDG_DATA_HOME || (path.join(require('os').homedir(), '.local', 'share')), 'keyring', 'secrets.json');
 fs.mkdirSync(path.dirname(dataPath), { recursive: true });
 fs.writeFileSync(dataPath, output, { mode: 0o600 });
-console.log('[startup] Tokens written to file keyring');
-" "$ACP_AGENT_WALLET_ADDRESS" "$ACP_ACCESS_TOKEN" "$ACP_REFRESH_TOKEN" 2>&1 || {
+console.log('[startup] Tokens written to file keyring for agent+owner wallets');
+" "$ACP_AGENT_WALLET_ADDRESS" "$ACP_ACCESS_TOKEN" "$ACP_REFRESH_TOKEN" "0x25f2603be53bd4bed38aea500cb60fd10e7469ea" 2>&1 || {
     echo "[startup] WARNING: Could not write tokens to file keyring"
 }
 
