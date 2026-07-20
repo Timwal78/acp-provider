@@ -95,7 +95,7 @@ X402_REGISTRIES: list[dict[str, str]] = [
 MCP_REGISTRIES: list[dict[str, str]] = [
     {
         "name": "MCP Registry (modelcontextprotocol.org)",
-        "submit": "https://registry.modelcontextprotocol.io/api/servers",
+        "submit": "https://registry.modelcontextprotocol.io/v0/api/servers",
         "site": "https://modelcontextprotocol.org",
         "method": "POST",
         "description": "Official MCP server registry — lists servers with transport + manifest URLs.",
