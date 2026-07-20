@@ -13,9 +13,14 @@ RUN npm install -g @virtuals-protocol/acp-cli
 # Create app directory
 WORKDIR /app
 
-# Copy provider code
+# Copy provider code + A2A/MCP/x402 layer
 COPY provider.py .
 COPY startup.sh .
+COPY x402_flask.py .
+COPY x402_server.py .
+COPY a2a_agent_card.py .
+COPY mcp_server.py .
+COPY a2a_broadcast.py .
 
 RUN chmod +x startup.sh
 
