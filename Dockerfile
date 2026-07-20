@@ -26,13 +26,11 @@ COPY mcp_server.py .
 COPY a2a_broadcast.py .
 COPY requirements-x402.txt .
 
-# Install Python deps for x402 server
+# Install Python deps for x402 server (includes gunicorn)
 RUN pip install --no-cache-dir -r requirements-x402.txt
 
 RUN chmod +x startup.sh
 
-# Health check — if the provider process dies, Render restarts it
-HEALTHCHECK --interval=60s --timeout=10s --retries=3 \
-    CMD pgrep -f "python3 provider.py" > /dev/null || exit 1
-
+# Default: run as worker (provider.py event listener)
+# The web service overrides CMD with: bash -c "exec gunicorn x402_server:app --bind 0.0.0.0:\$PORT"
 CMD ["bash", "startup.sh"]
