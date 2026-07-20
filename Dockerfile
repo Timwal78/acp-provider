@@ -32,5 +32,5 @@ RUN pip install --no-cache-dir -r requirements-x402.txt
 RUN chmod +x startup.sh
 
 # Default: run as worker (provider.py event listener)
-# The web service overrides CMD with: bash -c "exec gunicorn x402_server:app --bind 0.0.0.0:\$PORT"
+# The web service overrides CMD via render.yaml dockerCommand.
 CMD ["bash", "startup.sh"]
