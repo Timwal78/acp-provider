@@ -33,7 +33,7 @@ services:
     plan: starter
     dockerfilePath: ./Dockerfile
     autoDeploy: true
-    dockerCommand: bash -c "exec gunicorn x402_server:app --bind 0.0.0.0:$$PORT --workers 2 --timeout 120"
+    dockerCommand: python3 -m gunicorn x402_server:app --bind 0.0.0.0:$$PORT --workers 2 --timeout 120
     envVars:
       - key: PYTHONUNBUFFERED
         value: "1"
