@@ -72,18 +72,54 @@ from x402_flask import (
     _facilitator,
 )
 
-# Per-call USD pricing. Imported from x402_server so the MCP price for a tool
-# is always identical to the HTTP price for the same endpoint.
-try:
-    from x402_server import _PRICES_USD as _X402_PRICES, _coerce_params
-except Exception:  # pragma: no cover
-    logging.getLogger("mcp").warning(
-        "Could not import _PRICES_USD / _coerce_params from x402_server; "
-        "MCP tools/call will not be payable."
-    )
-    _X402_PRICES = {}
-    def _coerce_params(raw: dict) -> dict:  # type: ignore[misc]
-        return raw
+# Per-call USD pricing. We do NOT import x402_server at module top level —
+# it has import-time side effects (builds a Flask app and registers 40
+# routes), and importing it from a Blueprint would create a circular import
+# + double-registration. We read the price map lazily and cache it. The
+# price map MUST stay in sync with x402_server._PRICES_USD.
+_X402_PRICES_CACHE: dict[str, str] | None = None
+_COERCE_PARAMS_FN: Callable[[dict], dict] | None = None
+
+
+def _get_x402_prices() -> dict[str, str]:
+    """Lazily import and cache x402_server._PRICES_USD."""
+    global _X402_PRICES_CACHE
+    if _X402_PRICES_CACHE is not None:
+        return _X402_PRICES_CACHE
+    try:
+        from x402_server import _PRICES_USD as _prices, _coerce_params as _coerce
+        _X402_PRICES_CACHE = dict(_prices)
+        _set_coerce_fn(_coerce)
+    except Exception as e:
+        logging.getLogger("mcp").warning(
+            "Could not import _PRICES_USD / _coerce_params from x402_server (%s); "
+            "MCP tools/call will not be payable.", e,
+        )
+        _X402_PRICES_CACHE = {}
+    return _X402_PRICES_CACHE
+
+
+def _set_coerce_fn(fn: Callable[[dict], dict]) -> None:
+    global _COERCE_PARAMS_FN
+    _COERCE_PARAMS_FN = fn
+
+
+def _coerce_params(raw: dict) -> dict:
+    """Coerce tool args to typed values. Falls back to a stdlib-only coercer
+    if x402_server._coerce_params is unavailable."""
+    if _COERCE_PARAMS_FN is not None:
+        return _COERCE_PARAMS_FN(raw)
+    # Minimal fallback: numeric strings → int/float, else string.
+    out = {}
+    for k, v in (raw or {}).items():
+        if isinstance(v, str) and v.isdigit():
+            out[k] = int(v)
+        else:
+            try:
+                out[k] = float(v) if isinstance(v, str) else v
+            except (ValueError, TypeError):
+                out[k] = v
+    return out
 
 logger = logging.getLogger("mcp")
 
@@ -222,7 +258,7 @@ def _tool_for(name: str, fn: Callable[..., Any]) -> dict[str, Any]:
     description = (schema_entry.get("description") if schema_entry else None) or (
         fn.__doc__ and fn.__doc__.strip().splitlines()[0]
     ) or name
-    price_str = _X402_PRICES.get(name)
+    price_str = _get_x402_prices().get(name)
 
     # Enrich the description with pricing + the HTTP route so an LLM reading
     # the tool list knows it's paid and where the REST equivalent lives.
@@ -311,7 +347,7 @@ def _check_tool_payment(name: str) -> tuple[bool, Any]:
     Bypass logic matches x402_guard exactly: OPERATOR_API_KEY, OWNER_API_KEY,
     AGENT_API_KEYS, via X-API-Key / X-Owner-Key / Authorization: Bearer.
     """
-    price_str = _X402_PRICES.get(name)
+    price_str = _get_x402_prices().get(name)
     if not price_str:
         # No price mapped — treat as free (shouldn't happen given x402_server's
         # assert, but be permissive rather than 500'ing the RPC call).

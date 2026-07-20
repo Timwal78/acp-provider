@@ -91,6 +91,27 @@ X402_REGISTRIES: list[dict[str, str]] = [
     },
 ]
 
+# MCP and A2A protocol registries — announce the MCP manifest and agent card.
+MCP_REGISTRIES: list[dict[str, str]] = [
+    {
+        "name": "MCP Registry (modelcontextprotocol.org)",
+        "submit": "https://registry.modelcontextprotocol.io/api/servers",
+        "site": "https://modelcontextprotocol.org",
+        "method": "POST",
+        "description": "Official MCP server registry — lists servers with transport + manifest URLs.",
+    },
+]
+
+AP2_REGISTRIES: list[dict[str, str]] = [
+    {
+        "name": "Google Agent Payments Protocol (AP2) registry",
+        "submit": "https://api.ap2-protocol.org/api/v1/agents/register",
+        "site": "https://ap2-protocol.org",
+        "method": "POST",
+        "description": "AP2 registry — agent payment identity for mandate-based agent commerce.",
+    },
+]
+
 # ACP marketplace endpoint. The Virtuals ACP CLI (`acp`) is the canonical way
 # to update marketplace listings, but we also POST the public HTTP origin to
 # the agent-info endpoint so the marketplace record links to the x402 surface.
@@ -428,8 +449,48 @@ def run_broadcast(base_url: str, dry_run: bool = False, verbose: bool = False) -
     logger.info("step 4: broadcast to ACP marketplace")
     report.results.extend(_broadcast_to_acp(payload, dry_run))
 
-    # Step 5: broadcast to configurable agent indexes / webhooks.
-    logger.info("step 5: broadcast to agent indexes / webhooks")
+    # Step 5: broadcast to MCP registry.
+    logger.info("step 5: broadcast to MCP registries (%d)", len(MCP_REGISTRIES))
+    for reg in MCP_REGISTRIES:
+        mcp_payload = {
+            "name": AGENT_NAME,
+            "transport": "http",
+            "manifestUrl": f"{base_url}/.well-known/mcp.json",
+            "rpcUrl": f"{base_url}/mcp",
+            "sseUrl": f"{base_url}/mcp/sse",
+            "protocolVersion": "2024-11-05",
+        }
+        status, err, resp_body = _http("POST", reg["submit"], body=mcp_payload)
+        ok = status is not None and 200 <= status < 300
+        report.results.append(BroadcastResult(
+            target=reg["name"], kind="mcp_registry", method="POST",
+            url=reg["submit"], status=status or 0, ok=ok, error=err or None,
+            response_body=resp_body or "", elapsed_ms=0,
+        ))
+
+    # Step 6: broadcast to AP2 registry.
+    logger.info("step 6: broadcast to AP2 registries (%d)", len(AP2_REGISTRIES))
+    for reg in AP2_REGISTRIES:
+        ap2_payload = {
+            "agentName": AGENT_NAME,
+            "walletAddress": AGENT_WALLET,
+            "chainId": 8453,
+            "paymentSchemes": ["x402"],
+            "discoveryUrls": {
+                "agent": f"{base_url}/.well-known/agent.json",
+                "x402": f"{base_url}/.well-known/x402",
+            },
+        }
+        status, err, resp_body = _http("POST", reg["submit"], body=ap2_payload)
+        ok = status is not None and 200 <= status < 300
+        report.results.append(BroadcastResult(
+            target=reg["name"], kind="ap2_registry", method="POST",
+            url=reg["submit"], status=status or 0, ok=ok, error=err or None,
+            response_body=resp_body or "", elapsed_ms=0,
+        ))
+
+    # Step 7: broadcast to configurable agent indexes / webhooks.
+    logger.info("step 7: broadcast to agent indexes / webhooks")
     report.results.extend(_broadcast_to_agent_indexes(payload, dry_run))
 
     report.finished_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())

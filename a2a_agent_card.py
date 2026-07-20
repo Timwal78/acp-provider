@@ -83,14 +83,32 @@ AGENT_WEBSITE = os.environ.get(
     "AGENT_WEBSITE", "https://timwal78.github.io/acp-provider/"
 )
 
-# x402 per-call USD pricing. This MUST match x402_server._PRICES_USD exactly —
-# we import it from there rather than duplicating, so the card never advertises
-# a price different from what the paywall actually charges.
-try:
-    from x402_server import _PRICES_USD as _X402_PRICES
-except Exception:  # pragma: no cover - only happens if x402_server import fails
-    logger.warning("Could not import _PRICES_USD from x402_server; falling back to empty price map")
-    _X402_PRICES = {}
+# x402 per-call USD pricing. We do NOT import x402_server at module top
+# level — it has import-time side effects (builds a Flask app and registers
+# 40 routes), and importing it from a Blueprint would create a circular
+# import + double-registration. Instead we read the price map lazily the
+# first time it is needed, and cache it. The price map MUST stay in sync
+# with x402_server._PRICES_USD; x402_server asserts it matches ENDPOINTS,
+# and build_agent_card() cross-checks every capability has a price.
+_X402_PRICES_CACHE: dict[str, str] | None = None
+
+
+def _get_x402_prices() -> dict[str, str]:
+    """Lazily import and cache x402_server._PRICES_USD.
+
+    Returns an empty dict if x402_server cannot be imported (e.g. the
+    Blueprint is loaded in a context where the full server isn't present).
+    """
+    global _X402_PRICES_CACHE
+    if _X402_PRICES_CACHE is not None:
+        return _X402_PRICES_CACHE
+    try:
+        from x402_server import _PRICES_USD as _prices
+        _X402_PRICES_CACHE = dict(_prices)
+    except Exception as e:
+        logger.warning("Could not import _PRICES_USD from x402_server (%s); card pricing will be empty", e)
+        _X402_PRICES_CACHE = {}
+    return _X402_PRICES_CACHE
 
 # ── Endpoint schema metadata ─────────────────────────────────────────────────
 # provider.py's ENDPOINTS dict gives us {name: callable} but not the parameter
@@ -268,7 +286,7 @@ def _capability_for(name: str, fn: Callable[..., Any]) -> dict[str, Any] | None:
     Returns None if the endpoint has no price (shouldn't happen given the
     x402_server assert, but we guard anyway) — callers skip None entries.
     """
-    price_str = _X402_PRICES.get(name)
+    price_str = _get_x402_prices().get(name)
     schema_entry = _ENDPOINT_SCHEMAS.get(name)
     description = (schema_entry.get("description") if schema_entry else None) or (
         fn.__doc__ and fn.__doc__.strip().splitlines()[0]
