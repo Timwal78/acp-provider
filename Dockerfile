@@ -26,7 +26,7 @@ COPY mcp_server.py .
 COPY a2a_broadcast.py .
 COPY requirements-x402.txt .
 
-# Install Python deps for x402 server (includes gunicorn)
+# Install Python deps for x402 server
 RUN pip install --no-cache-dir -r requirements-x402.txt
 
 RUN chmod +x startup.sh
