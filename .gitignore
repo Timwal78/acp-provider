@@ -1,6 +1,22 @@
+# Secrets — NEVER commit
+.env
+.env.tokens
 *.key
 secrets.json
-.env
+keyring/
+
+# Runtime logs
+provider.log
+*.log
+
+# One-time paste docs
+TOKEN_PROFILE_TO_PASTE.md
+RENDER_ENV_VARS.txt
+
+# Intermediate build artifacts
+docs/endpoint_schemas.json
+
+# Python
 __pycache__/
 *.pyc
-RENDER_ENV_VARS.txt
+events.jsonl
