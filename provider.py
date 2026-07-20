@@ -2673,16 +2673,17 @@ def main():
     log(f"Poll interval: {POLL_INTERVAL}s")
     log("=" * 60)
 
-    # Start event listener
+    # Start event listener (non-fatal — server works without it)
     listener_proc = start_event_listener()
     time.sleep(3)
 
-    # Verify listener is running
+    # Check listener status — continue even if it failed
     if listener_proc.poll() is not None:
-        log("Event listener failed to start!", "ERROR")
-        sys.exit(1)
-
-    log("Event listener running. Entering main loop...")
+        log("Event listener failed to start (ACP auth unavailable).", "WARN")
+        log("HTTP/x402/A2A/MCP endpoints still serving. Job intake disabled until auth is restored.", "WARN")
+        listener_proc = None
+    else:
+        log("Event listener running. Entering main loop...")
 
     cycle = 0
     while running:
@@ -2720,10 +2721,11 @@ def main():
 
     # Cleanup
     log("Shutting down...")
-    try:
-        os.killpg(os.getpgid(listener_proc.pid), signal.SIGTERM)
-    except:
-        pass
+    if listener_proc:
+        try:
+            os.killpg(os.getpgid(listener_proc.pid), signal.SIGTERM)
+        except:
+            pass
     log("Provider server stopped")
 
 if __name__ == "__main__":
