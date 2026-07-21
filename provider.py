@@ -2439,7 +2439,10 @@ ENDPOINTS = {
     "new_token_detection": api_new_token_detection,
     "liquidation_risk_check": api_liquidation_risk_check,
     "rugpull_detector": api_rugpull_detector,
+    "honeypot_check": api_rugpull_detector,  # alias — same GoPlus honeypot/rug path
     "token_security_audit": api_token_security_audit,
+    "wallet_analysis": api_wallet_analyzer,  # SEO alias
+    "defi_yield": api_defi_yield_rates,  # SEO alias
 
     # --- SEC EDGAR APIs ---
     "sec_10_k_annual_filing": api_sec_10_k_annual_filing,
@@ -2481,7 +2484,8 @@ ENDPOINTS = {
 
 HANDLED_BUDGET = set()
 HANDLED_SUBMIT = set()
-SKIPPED_DEAD = set()  # SESSION_NOT_FOUND / expired zombies
+SKIPPED_DEAD = set()  # expired OPEN zombies only
+HINTED_OPEN = set()  # open jobs already handed to live_provider
 PRICE_CACHE = {}
 PRICE_CACHE_TS = 0.0
 
@@ -2703,81 +2707,44 @@ def _map_status(job):
 
 
 def set_budget(job):
+    """CLI set-budget is cross-process SESSION_NOT_FOUND — live_provider.mjs owns setBudget.
+    Do NOT mark jobs dead here; that poisoned live work before live_provider existed.
+    """
     jid = _job_onchain_id(job)
     if not jid or jid in HANDLED_BUDGET or jid in SKIPPED_DEAD:
         return
     offering = _job_offering_name(job)
     price = lookup_price(offering)
-    chain = int(job.get("chainId") or CHAIN_ID)
-    log(f"set-budget job={jid} offering={offering} price=${price}")
-    code, data, out, err = _run_acp([
-        "provider", "set-budget",
-        "--job-id", jid,
-        "--amount", str(price),
-        "--chain-id", str(chain),
-    ], timeout=90)
-    msg = err or out or str(data)
-    if code == 0 and not (isinstance(data, dict) and data.get("error")):
-        HANDLED_BUDGET.add(jid)
-        log(f"budget OK job={jid} ${price}")
-        return
-    log(f"set-budget FAIL job={jid}: {msg[:300]}", "ERROR")
-    low = msg.lower()
-    if "session_not_found" in low or "not found" in low or "expired" in low:
-        SKIPPED_DEAD.add(jid)
-        HANDLED_BUDGET.add(jid)
-        log(f"marking dead job={jid}", "WARN")
+    if jid not in HINTED_OPEN:
+        log(
+            f"open job={jid} offering={offering} price=${price} → "
+            f"delegating setBudget to live_provider (CLI path disabled)"
+        )
+        HINTED_OPEN.add(jid)
+    # Hint file for live_provider REST fallback (re-write each poll until budgeted)
+    try:
+        hint = {
+            "jobId": jid,
+            "chainId": int(job.get("chainId") or CHAIN_ID),
+            "offering": offering,
+            "price": price,
+            "uuid": job.get("id"),
+            "ts": datetime.now(timezone.utc).isoformat(),
+        }
+        path = "/tmp/open_jobs_hint.jsonl"
+        with open(path, "a") as f:
+            f.write(json.dumps(hint) + "\n")
+    except Exception as e:
+        log(f"hint write fail: {e}", "WARN")
 
 
 def execute_and_submit(job):
+    """CLI submit also SESSION_NOT_FOUND cross-process. live_provider owns submit."""
     jid = _job_onchain_id(job)
     if not jid or jid in HANDLED_SUBMIT or jid in SKIPPED_DEAD:
         return
     offering = _job_offering_name(job)
-    reqs = _job_requirements(job)
-    chain = int(job.get("chainId") or CHAIN_ID)
-    log(f"submit job={jid} offering={offering} reqs={json.dumps(reqs)[:180]}")
-
-    if offering and offering in ENDPOINTS:
-        try:
-            result = ENDPOINTS[offering](reqs or {})
-        except Exception as e:
-            result = {"error": f"API execution failed: {e}"}
-            log(f"handler error {offering}: {e}", "ERROR")
-    else:
-        result = {"error": f"Unknown offering: {offering}", "available": sorted(ENDPOINTS.keys())}
-        log(f"unknown offering {offering}", "ERROR")
-
-    deliverable = json.dumps(result, default=str)
-    if len(deliverable) > 900_000:
-        deliverable = json.dumps({"error": "deliverable too large", "preview": deliverable[:2000]})
-
-    code, data, out, err = _run_acp([
-        "provider", "submit",
-        "--job-id", jid,
-        "--deliverable", deliverable,
-        "--chain-id", str(chain),
-    ], timeout=120)
-    msg = err or out or str(data)
-    if code == 0 and not (isinstance(data, dict) and data.get("error")):
-        HANDLED_SUBMIT.add(jid)
-        HANDLED_BUDGET.add(jid)
-        log(f"submit OK job={jid}")
-        state = load_state()
-        state["total_jobs"] = int(state.get("total_jobs") or 0) + 1
-        state.setdefault("jobs_handled", []).append({
-            "job_id": jid,
-            "offering": offering,
-            "price": lookup_price(offering),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        })
-        state["jobs_handled"] = state["jobs_handled"][-200:]
-        save_state(state)
-        return
-    log(f"submit FAIL job={jid}: {msg[:400]}", "ERROR")
-    if "session_not_found" in msg.lower() or "not found" in msg.lower():
-        SKIPPED_DEAD.add(jid)
-        HANDLED_SUBMIT.add(jid)
+    log(f"funded job={jid} offering={offering} → delegating submit to live_provider")
 
 
 def process_job(job):
@@ -2788,11 +2755,10 @@ def process_job(job):
         return
     st = _map_status(job)
     offering = _job_offering_name(job)
-    # Skip ancient OPEN zombies past expiry — set-budget will SESSION_NOT_FOUND
+    # Skip ancient OPEN zombies past expiry
     exp = job.get("expiredAt")
     if st == "open" and exp:
         try:
-            # 2026-07-18T02:36:20.000Z
             exp_dt = datetime.fromisoformat(exp.replace("Z", "+00:00"))
             if exp_dt < datetime.now(timezone.utc):
                 if jid not in SKIPPED_DEAD:
@@ -2807,9 +2773,9 @@ def process_job(job):
         set_budget(job)
     elif st == "budget_set":
         HANDLED_BUDGET.add(jid)
+        log(f"budget_set job={jid} offering={offering} waiting fund")
     elif st == "funded":
-        if jid not in HANDLED_BUDGET:
-            set_budget(job)
+        HANDLED_BUDGET.add(jid)
         execute_and_submit(job)
     elif st in ("completed", "rejected"):
         HANDLED_BUDGET.add(jid)

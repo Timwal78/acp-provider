@@ -343,11 +343,114 @@ async function main() {
     return agent.getSession(chainId, jobId);
   }
 
+  async function restOpenJobs() {
+    // Fallback when api.getActiveJobs() returns HTML/Cloudflare or empty.
+    // Mirrors provider.py: GET /agents/{id}/jobs with bearer token.
+    const token =
+      process.env.ACP_ACCESS_TOKEN ||
+      process.env.ACP_TOKEN ||
+      "";
+    const agentId =
+      entry.id ||
+      process.env.ACP_AGENT_ID ||
+      "019f5f40-c194-7776-b5e1-7a666ce631c0";
+    if (!token || !token.startsWith("eyJ")) return [];
+    const url = `${ACP_SERVER_URL || "https://api.acp.virtuals.io"}/agents/${agentId}/jobs?limit=50`;
+    const res = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json",
+        "User-Agent": "scriptmasterlabs-live-provider/1.0",
+      },
+    });
+    const text = await res.text();
+    if (!res.ok || text.trimStart().startsWith("<")) {
+      throw new Error(
+        `rest jobs HTTP ${res.status} body=${text.slice(0, 80).replace(/\s+/g, " ")}`
+      );
+    }
+    const data = JSON.parse(text);
+    const arr = data.data || data || [];
+    const now = Date.now();
+    const out = [];
+    for (const j of arr) {
+      const st = String(j.jobStatus || j.status || "").toUpperCase();
+      if (!["OPEN", "BUDGET_SET", "FUNDED", "PAID", "EXECUTION"].includes(st)) {
+        continue;
+      }
+      const exp = j.expiredAt ? Date.parse(j.expiredAt) : 0;
+      if (exp && exp < now) continue; // skip zombies
+      const jobId = String(j.onChainJobId || "");
+      if (!jobId) continue;
+      out.push({
+        onChainJobId: jobId,
+        jobId,
+        chainId: j.chainId || 8453,
+        jobStatus: st,
+        offering: j.description || null,
+      });
+    }
+    return out;
+  }
+
   let ticks = 0;
   setInterval(async () => {
     ticks += 1;
     try {
-      const jobs = await api.getActiveJobs();
+      let jobs = [];
+      try {
+        jobs = (await api.getActiveJobs()) || [];
+      } catch (e) {
+        const msg = e?.message || String(e);
+        // HTML / Cloudflare / non-JSON — fall through to REST
+        if (ticks % 15 === 1) {
+          log({ msg: "getActiveJobs_err", error: msg.slice(0, 160) });
+        }
+        jobs = [];
+      }
+
+      if (!jobs.length) {
+        try {
+          jobs = await restOpenJobs();
+          if (jobs.length) {
+            log({
+              msg: "rest_open_jobs",
+              n: jobs.length,
+              ids: jobs.map((j) => j.onChainJobId).slice(0, 8),
+            });
+          }
+        } catch (e) {
+          if (ticks % 30 === 1) {
+            log({ msg: "rest_poll_err", error: (e?.message || String(e)).slice(0, 160) });
+          }
+        }
+      }
+
+      // Also drain hint file from provider.py REST discovery
+      try {
+        if (existsSync("/tmp/open_jobs_hint.jsonl")) {
+          const lines = readFileSync("/tmp/open_jobs_hint.jsonl", "utf8")
+            .trim()
+            .split("\n")
+            .filter(Boolean)
+            .slice(-20);
+          for (const line of lines) {
+            try {
+              const h = JSON.parse(line);
+              if (h.jobId) {
+                jobs.push({
+                  onChainJobId: String(h.jobId),
+                  jobId: String(h.jobId),
+                  chainId: h.chainId || 8453,
+                });
+              }
+            } catch {}
+          }
+          // truncate hint file after read
+          writeFileSync("/tmp/open_jobs_hint.jsonl", "");
+        }
+      } catch {}
+
       if (jobs?.length) {
         log({
           msg: "active_jobs",
@@ -355,7 +458,6 @@ async function main() {
           ids: jobs.map((j) => j.onChainJobId || j.jobId).slice(0, 8),
         });
       } else if (ticks % 30 === 0) {
-        // heartbeat every ~30s so Render logs prove process alive
         log({
           msg: "heartbeat",
           ticks,
