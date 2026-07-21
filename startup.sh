@@ -10,6 +10,7 @@
 #   OPTIONAL: ACP_REFRESH_TOKEN (job intake). ACP_ACCESS_TOKEN seed optional (minted from refresh).
 # ============================================================
 set -e
+# note: individual ln may fail if same path; use || true where needed
 
 echo "[startup] ACP Provider for Render — starting..."
 
@@ -48,11 +49,11 @@ export TS_KEYRING_BACKEND=file
 # Point acp-cli at reconstructed config + signer store
 export HOME=/opt/acp-config/home
 mkdir -p "$HOME/.config" "$HOME/.local/share"
-ln -sfn /opt/acp-config/config.json /opt/acp-config/config.json
 mkdir -p "$HOME/.config/acp-cli" "$HOME/.config/keyring" "$HOME/.local/share/keyring" "$HOME/.config/acp"
-ln -sfn /opt/acp-config/acp-cli/signer-keys.json "$HOME/.config/acp-cli/signer-keys.json"
-ln -sfn /opt/acp-config/keyring/file.key "$HOME/.config/keyring/file.key"
-ln -sfn /opt/acp-config/config.json "$HOME/.config/acp/config.json"
+ln -sfn /opt/acp-config/acp-cli/signer-keys.json "$HOME/.config/acp-cli/signer-keys.json" || true
+ln -sfn /opt/acp-config/keyring/file.key "$HOME/.config/keyring/file.key" || true
+ln -sfn /opt/acp-config/config.json "$HOME/.config/acp/config.json" || true
+cp -f /opt/acp-config/config.json "$HOME/.config/acp/config.json" 2>/dev/null || true
 
 # --- Wallet address ---
 ACP_AGENT_WALLET_ADDRESS=$(echo -n "$ACP_AGENT_WALLET_ADDRESS" | tr -d '[:space:]')
