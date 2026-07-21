@@ -40,12 +40,13 @@ if _env_file.exists():
             os.environ.setdefault(k.strip(), v.strip())
 
 AGENT_ID = "019f5f40-c194-7776-b5e1-7a666ce631c0"
+AGENT_WALLET = "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa"
 CHAIN_ID = 8453
-EVENTS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "events.jsonl")
 LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "provider.log")
 STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "state.json")
-POLL_INTERVAL = 5  # seconds between event drains
-API_TIMEOUT = 15   # seconds for API calls
+POLL_INTERVAL = 8  # seconds between REST job polls
+API_TIMEOUT = 15   # seconds for data API calls
+ACP_API = "https://api.acp.virtuals.io"
 
 # ============================================================
 # LOGGING
@@ -2473,260 +2474,451 @@ ENDPOINTS = {
 }
 
 # ============================================================
-# ACP EVENT HANDLING
+# JOB INTAKE — REST ONLY (no event listener)
+# Polls GET /agents/{id}/jobs (REST). No socket/listener.
+# description field on each job IS the offering name.
 # ============================================================
-def start_event_listener():
-    """Start the ACP event listener in background."""
-    Path(EVENTS_FILE).parent.mkdir(parents=True, exist_ok=True)
-    # Kill any existing listener
-    subprocess.run(f"pkill -f 'acp events listen.*{EVENTS_FILE}' 2>/dev/null", shell=True)
-    time.sleep(1)
-    # Start new listener
-    proc = subprocess.Popen(
-        f"acp events listen --output {EVENTS_FILE} --json",
-        shell=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        preexec_fn=os.setsid
-    )
-    log(f"Event listener started (PID {proc.pid})")
-    return proc
 
-def drain_events():
-    """Drain events from the listener file."""
-    result = subprocess.run(
-        f"acp events drain --file {EVENTS_FILE} --limit 10 --json",
-        shell=True, capture_output=True, text=True, timeout=30
-    )
-    if result.returncode != 0:
-        return []
+HANDLED_BUDGET = set()
+HANDLED_SUBMIT = set()
+SKIPPED_DEAD = set()  # SESSION_NOT_FOUND / expired zombies
+PRICE_CACHE = {}
+PRICE_CACHE_TS = 0.0
+
+
+def _run_acp(args, timeout=90):
+    """Run acp CLI with argv list. Never shell-interpolate JSON."""
+    cmd = ["acp"] + list(args) + ["--json"]
     try:
-        data = json.loads(result.stdout)
-        return data.get("events", [])
-    except:
-        return []
-
-def handle_job_created(event):
-    """Handle a new job — set budget to the offering price."""
-    job_id = event.get("jobId")
-    chain_id = event.get("chainId")
-    entry = event.get("entry", {})
-
-    # Find the offering name from the entry
-    offering_name = None
-    if isinstance(entry, dict):
-        # Try to extract offering name from various places
-        ev = entry.get("event", {})
-        offering_name = ev.get("offeringName") or entry.get("offeringName")
-        if not offering_name:
-            # Check the offering in the entry
-            offering = entry.get("offering", {})
-            if isinstance(offering, dict):
-                offering_name = offering.get("name")
-
-    log(f"New job: {job_id} for offering '{offering_name}'")
-
-    # Look up the price from our offerings
-    offerings = get_offerings()
-    price = 0.03  # default
-    if offering_name:
-        for o in offerings:
-            if o.get("name") == offering_name:
-                price = o.get("priceValue", 0.03)
-                break
-
-    # Set budget
-    r = subprocess.run(
-        f"acp provider set-budget --job-id {job_id} --amount {price} --chain-id {chain_id} --json",
-        shell=True, capture_output=True, text=True, timeout=30
-    )
-    if r.returncode == 0:
-        log(f"Budget set to ${price} for job {job_id}")
-    else:
-        log(f"Failed to set budget for {job_id}: {r.stderr[:200]}", "ERROR")
-
-def handle_job_funded(event):
-    """Handle a funded job — execute the API and submit deliverable."""
-    job_id = event.get("jobId")
-    chain_id = event.get("chainId")
-    entry = event.get("entry", {})
-
-    # Get the offering name and requirement
-    offering_name = None
-    requirements = {}
-
-    ev = entry.get("event", {})
-    offering_name = ev.get("offeringName") or entry.get("offeringName")
-
-    # Try to get requirements from messages
-    messages = entry.get("messages", [])
-    for msg in messages:
-        if msg.get("contentType") == "requirement":
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        out = (r.stdout or "").strip()
+        err = (r.stderr or "").strip()
+        data = None
+        if out:
             try:
-                requirements = json.loads(msg.get("content", "{}"))
-            except:
-                requirements = {}
-            break
+                data = json.loads(out)
+            except Exception:
+                k = -1
+                for ch in ("{", "["):
+                    i = out.find(ch)
+                    if i >= 0 and (k < 0 or i < k):
+                        k = i
+                if k >= 0:
+                    try:
+                        data = json.loads(out[k:])
+                    except Exception:
+                        data = None
+        return r.returncode, data, out, err
+    except subprocess.TimeoutExpired:
+        return 124, None, "", "timeout"
+    except Exception as e:
+        return 1, None, "", str(e)
 
-    if not offering_name:
-        # Fall back to job history
-        r = subprocess.run(
-            f"acp job history --job-id {job_id} --chain-id {chain_id} --json",
-            shell=True, capture_output=True, text=True, timeout=30
-        )
-        if r.returncode == 0:
-            try:
-                hist = json.loads(r.stdout)
-                offering_name = hist.get("offeringName") or hist.get("offering", {}).get("name")
-                # Try to get requirements from history
-                for msg in hist.get("messages", []):
-                    if msg.get("contentType") == "requirement":
-                        try:
-                            requirements = json.loads(msg.get("content", "{}"))
-                        except:
-                            pass
-            except:
-                pass
 
-    log(f"Job funded: {job_id} for '{offering_name}' with requirements: {json.dumps(requirements)[:200]}")
+def _read_access_token():
+    """JWT from file keyring or env."""
+    env_tok = (os.environ.get("ACP_ACCESS_TOKEN") or "").strip()
+    if env_tok.startswith("eyJ"):
+        return env_tok
+    try:
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        key_paths = [
+            Path(os.environ["XDG_CONFIG_HOME"]) / "keyring" / "file.key" if os.environ.get("XDG_CONFIG_HOME") else None,
+            Path("/opt/acp-config/keyring/file.key"),
+            Path.home() / ".config" / "keyring" / "file.key",
+        ]
+        sec_paths = [
+            Path(os.environ["XDG_DATA_HOME"]) / "keyring" / "secrets.json" if os.environ.get("XDG_DATA_HOME") else None,
+            Path("/opt/acp-config/keyring/secrets.json"),
+            Path.home() / ".local" / "share" / "keyring" / "secrets.json",
+        ]
+        key = next((p.read_bytes() for p in key_paths if p and p.exists()), None)
+        enc = next((p.read_bytes() for p in sec_paths if p and p.exists()), None)
+        if not key or not enc:
+            return env_tok
+        pt = AESGCM(key).decrypt(enc[1:13], enc[29:] + enc[13:29], None)
+        auth = json.loads(pt).get("acp-auth", json.loads(pt))
+        for k in (
+            f"access-token-{AGENT_WALLET.lower()}",
+            "access-token",
+        ):
+            v = auth.get(k)
+            if isinstance(v, str) and v.startswith("eyJ"):
+                return v
+        for k, v in auth.items():
+            if "access" in str(k) and isinstance(v, str) and v.startswith("eyJ"):
+                return v
+    except Exception as e:
+        log(f"token read failed: {e}", "WARN")
+    return env_tok
 
-    # Execute the API
-    result = None
-    if offering_name and offering_name in ENDPOINTS:
-        try:
-            result = ENDPOINTS[offering_name](requirements)
-            log(f"API executed for '{offering_name}' — success")
-        except Exception as e:
-            result = {"error": f"API execution failed: {str(e)}"}
-            log(f"API execution failed for '{offering_name}': {e}", "ERROR")
-    else:
-        result = {"error": f"Unknown offering: {offering_name}. Available: {list(ENDPOINTS.keys())}"}
-        log(f"Unknown offering: {offering_name}", "ERROR")
 
-    # Submit deliverable
-    deliverable = json.dumps(result, indent=2, default=str)
-    r = subprocess.run(
-        f"acp provider submit --job-id {job_id} --deliverable '{deliverable.replace(chr(39), chr(39) + chr(39))}' --chain-id {chain_id} --json",
-        shell=True, capture_output=True, text=True, timeout=60
-    )
-    if r.returncode == 0:
-        log(f"Deliverable submitted for job {job_id}")
-        # Update state
-        state = load_state()
-        state["total_jobs"] += 1
-        state["total_revenue"] += 0.03  # will be updated when completed
-        state["jobs_handled"].append({"job_id": job_id, "offering": offering_name, "timestamp": datetime.now(timezone.utc).isoformat()})
-        save_state(state)
-    else:
-        log(f"Failed to submit deliverable for {job_id}: {r.stderr[:200]}", "ERROR")
+def _http_get_json(url, token=None, timeout=30):
+    headers = ["-H", "User-Agent: Mozilla/5.0", "-H", "Accept: application/json"]
+    if token:
+        headers += ["-H", f"Authorization: Bearer {token}"]
+    cmd = ["curl", "-sS", "--max-time", str(timeout), *headers, url]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout + 5)
+        if r.returncode == 0 and r.stdout:
+            return json.loads(r.stdout)
+        if r.returncode != 0:
+            log(f"curl fail rc={r.returncode} {url}: {(r.stderr or '')[:120]}", "WARN")
+    except Exception as e:
+        log(f"http get failed: {e}", "WARN")
+    return None
 
-def handle_job_completed(event):
-    """Handle job completion — update revenue tracking."""
-    job_id = event.get("jobId")
-    entry = event.get("entry", {})
-    ev = entry.get("event", {})
-    amount = ev.get("amount", 0)
-
-    log(f"Job completed: {job_id} — revenue: ${amount}")
-    state = load_state()
-    state["total_revenue"] = float(amount) if amount else state["total_revenue"]
-    save_state(state)
-
-def handle_job_rejected(event):
-    """Handle job rejection."""
-    job_id = event.get("jobId")
-    entry = event.get("entry", {})
-    ev = entry.get("event", {})
-    reason = ev.get("reason", "unknown")
-    log(f"Job rejected: {job_id} — reason: {reason}", "WARN")
 
 def get_offerings():
-    """Get our current offerings from ACP."""
-    r = subprocess.run("acp offering list --json 2>/dev/null", shell=True, capture_output=True, text=True, timeout=30)
-    if r.returncode == 0:
-        try:
-            return json.loads(r.stdout)
-        except:
-            return []
+    global PRICE_CACHE, PRICE_CACHE_TS
+    now = time.time()
+    if PRICE_CACHE and now - PRICE_CACHE_TS < 300:
+        return list(PRICE_CACHE.values())
+
+    offerings = []
+    code, data, out, err = _run_acp(["offering", "list"], timeout=45)
+    if code == 0 and data is not None:
+        if isinstance(data, list):
+            offerings = data
+        elif isinstance(data, dict):
+            offerings = data.get("data") or data.get("offerings") or []
+    if not offerings:
+        code, data, out, err = _run_acp(["agent", "whoami"], timeout=60)
+        if code == 0 and isinstance(data, dict):
+            offerings = data.get("offerings") or []
+
+    PRICE_CACHE = {o.get("name"): o for o in offerings if isinstance(o, dict) and o.get("name")}
+    PRICE_CACHE_TS = now
+    return offerings
+
+
+def lookup_price(offering_name):
+    if not offering_name:
+        return 0.01
+    for o in get_offerings():
+        if o.get("name") == offering_name:
+            try:
+                return float(o.get("priceValue") or 0.01)
+            except Exception:
+                return 0.01
+    defaults = {
+        "compliance_anomaly_report": 2.0,
+        "compliance_bank_audit": 2.0,
+        "compliance_regulator_query": 1.0,
+        "druckenmiller_macro_regime_analysis": 0.25,
+        "sdvosb_setaside_feed": 0.25,
+        "entity_compliance_check": 0.15,
+        "federal_contract_opportunities": 0.15,
+        "federal_award_history": 0.10,
+        "sam_entity_verification": 0.10,
+        "federal_spending_by_agency": 0.10,
+        "excluded_parties_check": 0.05,
+    }
+    return defaults.get(offering_name, 0.01)
+
+
+def fetch_agent_jobs(status=None, limit=50):
+    """GET /agents/{id}/jobs — primary intake path."""
+    token = _read_access_token()
+    if not token:
+        log("No ACP access token — cannot poll jobs", "WARN")
+        return []
+    q = f"limit={limit}"
+    if status:
+        q += f"&status={status}"
+    url = f"{ACP_API}/agents/{AGENT_ID}/jobs?{q}"
+    data = _http_get_json(url, token=token)
+    if not data:
+        return []
+    if isinstance(data, dict):
+        return data.get("data") or data.get("jobs") or []
+    if isinstance(data, list):
+        return data
     return []
 
+
+def _job_onchain_id(job):
+    for k in ("onChainJobId", "on_chain_job_id", "jobId"):
+        if job.get(k) is not None:
+            return str(job[k])
+    return None
+
+
+def _job_offering_name(job):
+    # Live API: description field holds offering name
+    desc = (job.get("description") or "").strip()
+    if desc and desc in ENDPOINTS:
+        return desc
+    off = job.get("offering")
+    if isinstance(off, dict) and off.get("name"):
+        return off["name"]
+    if job.get("offeringName"):
+        return job["offeringName"]
+    if desc:
+        return desc  # still try handler lookup
+    return None
+
+
+def _job_requirements(job):
+    """Best-effort reqs. List payload often has none — use empty/defaults."""
+    for src in (job.get("requirements"), job.get("requirement"), job.get("params"), job.get("input")):
+        if isinstance(src, dict):
+            return src
+        if isinstance(src, str) and src.strip().startswith("{"):
+            try:
+                return json.loads(src)
+            except Exception:
+                pass
+    memos = job.get("memos") or job.get("messages") or []
+    if isinstance(memos, list):
+        for m in memos:
+            if not isinstance(m, dict):
+                continue
+            ctype = (m.get("contentType") or m.get("type") or "").lower()
+            content = m.get("content")
+            if ctype in ("requirement", "requirements") or m.get("phase") == "REQUEST":
+                if isinstance(content, dict):
+                    return content
+                if isinstance(content, str) and content.strip().startswith("{"):
+                    try:
+                        return json.loads(content)
+                    except Exception:
+                        pass
+    return {}
+
+
+def _map_status(job):
+    raw = str(job.get("jobStatus") or job.get("status") or "").upper()
+    if raw in ("OPEN", "CREATED", "PENDING", "NEGOTIATION", "AWAITING_FUNDING"):
+        return "open"
+    if raw == "BUDGET_SET":
+        return "budget_set"
+    if raw in ("FUNDED", "PAID", "EXECUTION", "IN_PROGRESS", "DELIVERING", "TRANSACTION"):
+        return "funded"
+    if raw in ("COMPLETED", "SUCCESS", "SUCCEEDED", "DONE", "EVALUATED"):
+        return "completed"
+    if raw in ("REJECTED", "EXPIRED", "CANCELLED", "CANCELED", "FAILED"):
+        return "rejected"
+    return "unknown"
+
+
+def set_budget(job):
+    jid = _job_onchain_id(job)
+    if not jid or jid in HANDLED_BUDGET or jid in SKIPPED_DEAD:
+        return
+    offering = _job_offering_name(job)
+    price = lookup_price(offering)
+    chain = int(job.get("chainId") or CHAIN_ID)
+    log(f"set-budget job={jid} offering={offering} price=${price}")
+    code, data, out, err = _run_acp([
+        "provider", "set-budget",
+        "--job-id", jid,
+        "--amount", str(price),
+        "--chain-id", str(chain),
+    ], timeout=90)
+    msg = err or out or str(data)
+    if code == 0 and not (isinstance(data, dict) and data.get("error")):
+        HANDLED_BUDGET.add(jid)
+        log(f"budget OK job={jid} ${price}")
+        return
+    log(f"set-budget FAIL job={jid}: {msg[:300]}", "ERROR")
+    low = msg.lower()
+    if "session_not_found" in low or "not found" in low or "expired" in low:
+        SKIPPED_DEAD.add(jid)
+        HANDLED_BUDGET.add(jid)
+        log(f"marking dead job={jid}", "WARN")
+
+
+def execute_and_submit(job):
+    jid = _job_onchain_id(job)
+    if not jid or jid in HANDLED_SUBMIT or jid in SKIPPED_DEAD:
+        return
+    offering = _job_offering_name(job)
+    reqs = _job_requirements(job)
+    chain = int(job.get("chainId") or CHAIN_ID)
+    log(f"submit job={jid} offering={offering} reqs={json.dumps(reqs)[:180]}")
+
+    if offering and offering in ENDPOINTS:
+        try:
+            result = ENDPOINTS[offering](reqs or {})
+        except Exception as e:
+            result = {"error": f"API execution failed: {e}"}
+            log(f"handler error {offering}: {e}", "ERROR")
+    else:
+        result = {"error": f"Unknown offering: {offering}", "available": sorted(ENDPOINTS.keys())}
+        log(f"unknown offering {offering}", "ERROR")
+
+    deliverable = json.dumps(result, default=str)
+    if len(deliverable) > 900_000:
+        deliverable = json.dumps({"error": "deliverable too large", "preview": deliverable[:2000]})
+
+    code, data, out, err = _run_acp([
+        "provider", "submit",
+        "--job-id", jid,
+        "--deliverable", deliverable,
+        "--chain-id", str(chain),
+    ], timeout=120)
+    msg = err or out or str(data)
+    if code == 0 and not (isinstance(data, dict) and data.get("error")):
+        HANDLED_SUBMIT.add(jid)
+        HANDLED_BUDGET.add(jid)
+        log(f"submit OK job={jid}")
+        state = load_state()
+        state["total_jobs"] = int(state.get("total_jobs") or 0) + 1
+        state.setdefault("jobs_handled", []).append({
+            "job_id": jid,
+            "offering": offering,
+            "price": lookup_price(offering),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+        state["jobs_handled"] = state["jobs_handled"][-200:]
+        save_state(state)
+        return
+    log(f"submit FAIL job={jid}: {msg[:400]}", "ERROR")
+    if "session_not_found" in msg.lower() or "not found" in msg.lower():
+        SKIPPED_DEAD.add(jid)
+        HANDLED_SUBMIT.add(jid)
+
+
+def process_job(job):
+    if not isinstance(job, dict):
+        return
+    jid = _job_onchain_id(job)
+    if not jid:
+        return
+    st = _map_status(job)
+    offering = _job_offering_name(job)
+    # Skip ancient OPEN zombies past expiry — set-budget will SESSION_NOT_FOUND
+    exp = job.get("expiredAt")
+    if st == "open" and exp:
+        try:
+            # 2026-07-18T02:36:20.000Z
+            exp_dt = datetime.fromisoformat(exp.replace("Z", "+00:00"))
+            if exp_dt < datetime.now(timezone.utc):
+                if jid not in SKIPPED_DEAD:
+                    log(f"skip expired OPEN job={jid} offering={offering} exp={exp}", "WARN")
+                SKIPPED_DEAD.add(jid)
+                HANDLED_BUDGET.add(jid)
+                return
+        except Exception:
+            pass
+
+    if st == "open":
+        set_budget(job)
+    elif st == "budget_set":
+        HANDLED_BUDGET.add(jid)
+    elif st == "funded":
+        if jid not in HANDLED_BUDGET:
+            set_budget(job)
+        execute_and_submit(job)
+    elif st in ("completed", "rejected"):
+        HANDLED_BUDGET.add(jid)
+        HANDLED_SUBMIT.add(jid)
+    else:
+        log(f"ignore job={jid} status={st} raw={job.get('jobStatus')}", "WARN")
+
+
+def poll_once():
+    """Pull actionable jobs. status=pending|ongoing covers live work."""
+    seen = {}
+    for status in ("pending", "ongoing", None):
+        try:
+            jobs = fetch_agent_jobs(status=status, limit=50)
+        except Exception as e:
+            log(f"fetch jobs status={status}: {e}", "ERROR")
+            jobs = []
+        for j in jobs or []:
+            jid = _job_onchain_id(j) or j.get("id")
+            if jid and jid not in seen:
+                seen[jid] = j
+        if status is None:
+            break
+        # if pending+ongoing returned data, still do one unfiltered pass less often
+    if not seen:
+        # unfiltered fallback
+        for j in fetch_agent_jobs(limit=50) or []:
+            jid = _job_onchain_id(j) or j.get("id")
+            if jid:
+                seen[jid] = j
+    return list(seen.values())
+
+
 # ============================================================
-# MAIN PROVIDER LOOP
+# MAIN LOOP
 # ============================================================
 running = True
+
 
 def signal_handler(sig, frame):
     global running
     log("Shutdown signal received")
     running = False
 
+
 signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
 
+
 def main():
     log("=" * 60)
-    log("ACP Provider Server starting for scriptmasterlabs")
+    log("ACP Provider — REST-only intake (no event listener)")
     log(f"Agent ID: {AGENT_ID}")
-    log(f"Chain ID: {CHAIN_ID}")
-    log(f"Endpoints: {list(ENDPOINTS.keys())}")
-    log(f"Event file: {EVENTS_FILE}")
-    log(f"Poll interval: {POLL_INTERVAL}s")
+    log(f"Wallet:   {AGENT_WALLET}")
+    log(f"Chain:    {CHAIN_ID}")
+    log(f"Endpoints: {len(ENDPOINTS)}")
+    log(f"Poll every {POLL_INTERVAL}s → GET {ACP_API}/agents/{{id}}/jobs")
     log("=" * 60)
 
-    # Start event listener (non-fatal — server works without it)
-    listener_proc = start_event_listener()
-    time.sleep(3)
+    try:
+        offs = get_offerings()
+        log(f"Price cache: {len(offs)} offerings")
+    except Exception as e:
+        log(f"Offering cache warm failed: {e}", "WARN")
 
-    # Check listener status — continue even if it failed
-    if listener_proc.poll() is not None:
-        log("Event listener failed to start (ACP auth unavailable).", "WARN")
-        log("HTTP/x402/A2A/MCP endpoints still serving. Job intake disabled until auth is restored.", "WARN")
-        listener_proc = None
+    tok = _read_access_token()
+    if tok:
+        log(f"Auth token present (len={len(tok)}, jwt={tok.startswith('eyJ')})")
     else:
-        log("Event listener running. Entering main loop...")
+        log("NO auth token — job poll will fail until ACP_REFRESH_TOKEN/keyring set", "WARN")
 
     cycle = 0
     while running:
         try:
             cycle += 1
-            events = drain_events()
+            jobs = poll_once()
+            actionable = []
+            for j in jobs:
+                st = _map_status(j)
+                jid = _job_onchain_id(j)
+                if not jid or jid in SKIPPED_DEAD:
+                    continue
+                if st == "open" and jid not in HANDLED_BUDGET:
+                    actionable.append(j)
+                elif st == "funded" and jid not in HANDLED_SUBMIT:
+                    actionable.append(j)
 
-            if events:
-                log(f"Cycle {cycle}: {len(events)} event(s) to process")
-            else:
-                if cycle % 12 == 0:  # Log every ~1 min
-                    state = load_state()
-                    log(f"Cycle {cycle}: No events. Jobs handled: {state['total_jobs']}, Revenue: ${state['total_revenue']:.2f}")
-
-            for event in events:
-                status = event.get("status")
-                job_id = event.get("jobId", "unknown")
-                log(f"  Event: status={status}, job={job_id}")
-
-                if status == "open":
-                    handle_job_created(event)
-                elif status == "funded":
-                    handle_job_funded(event)
-                elif status == "completed":
-                    handle_job_completed(event)
-                elif status == "rejected":
-                    handle_job_rejected(event)
-                else:
-                    log(f"  Unhandled status: {status}")
-
+            if actionable:
+                log(f"Cycle {cycle}: {len(actionable)} actionable / {len(jobs)} listed")
+                for j in actionable:
+                    try:
+                        process_job(j)
+                    except Exception as e:
+                        log(f"process_job error: {e}", "ERROR")
+            elif cycle % 8 == 0:
+                state = load_state()
+                log(
+                    f"Cycle {cycle}: idle. listed={len(jobs)} "
+                    f"handled={state.get('total_jobs', 0)} "
+                    f"dead_skipped={len(SKIPPED_DEAD)} "
+                    f"token={'yes' if _read_access_token() else 'no'}"
+                )
         except Exception as e:
-            log(f"Error in main loop: {e}", "ERROR")
+            log(f"main loop error: {e}", "ERROR")
 
         time.sleep(POLL_INTERVAL)
 
-    # Cleanup
-    log("Shutting down...")
-    if listener_proc:
-        try:
-            os.killpg(os.getpgid(listener_proc.pid), signal.SIGTERM)
-        except:
-            pass
-    log("Provider server stopped")
+    log("Provider stopped")
+
 
 if __name__ == "__main__":
     main()

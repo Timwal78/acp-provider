@@ -273,7 +273,15 @@ def x402_guard(price_usdc: str, description: str, discoverable: bool = True):
                     "message": "X402_PAY_TO is not set on this deployment. Refusing to advertise a payment address.",
                 }), 503
 
-            resource = request.base_url
+            # Force https for public discovery (Render terminates TLS at proxy;
+            # request.base_url is often http:// which breaks x402scan/Bazaar).
+            proto = (request.headers.get("X-Forwarded-Proto") or request.scheme or "https").split(",")[0].strip()
+            if proto not in ("http", "https"):
+                proto = "https"
+            host = request.headers.get("X-Forwarded-Host") or request.host
+            resource = f"{proto}://{host}{request.path}"
+            if proto == "http" and "onrender.com" in host:
+                resource = f"https://{host}{request.path}"
             reqs = _payment_requirements(price_usdc, description, resource)
 
             # ── Operator/agent key bypass ──
