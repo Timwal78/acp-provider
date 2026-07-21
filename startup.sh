@@ -198,10 +198,40 @@ echo ""
 
 cd /app
 
+# Locate signer binary (npm global package layout)
+ACP_SIGNER_BIN=""
+for cand in   "$(npm root -g 2>/dev/null)/@virtuals-protocol/acp-cli/bin/acp-cli-signer-linux"   /usr/local/lib/node_modules/@virtuals-protocol/acp-cli/bin/acp-cli-signer-linux   /usr/lib/node_modules/@virtuals-protocol/acp-cli/bin/acp-cli-signer-linux
+do
+  if [ -n "$cand" ] && [ -x "$cand" ]; then
+    ACP_SIGNER_BIN="$cand"
+    break
+  fi
+done
+if [ -n "$ACP_SIGNER_BIN" ]; then
+  export ACP_SIGNER_BIN
+  echo "[startup] ACP_SIGNER_BIN=$ACP_SIGNER_BIN"
+else
+  echo "[startup] WARNING: acp-cli-signer-linux not found — live_provider will fail setBudget"
+fi
+
 # Live in-process agent (setBudget + submit). Critical — CLI one-shot hits SESSION_NOT_FOUND.
+# STDOUT/STDERR unredirected so Render log drain captures boot/sse/setBudget evidence.
 if [ -f /app/live_provider.mjs ]; then
-    node /app/live_provider.mjs >> /app/live_provider.log 2>&1 &
-    echo "[startup] live_provider.mjs pid $!"
+    # stdbuf line-buffer if available so logs flush immediately
+    if command -v stdbuf >/dev/null 2>&1; then
+      stdbuf -oL -eL node /app/live_provider.mjs &
+    else
+      node /app/live_provider.mjs &
+    fi
+    LIVE_PID=$!
+    echo "[startup] live_provider.mjs pid $LIVE_PID (stdout→Render logs)"
+    # brief wait + liveness check
+    sleep 2
+    if kill -0 "$LIVE_PID" 2>/dev/null; then
+      echo "[startup] live_provider still running after 2s"
+    else
+      echo "[startup] ERROR: live_provider exited early — check FATAL lines above"
+    fi
 else
     echo "[startup] WARNING: live_provider.mjs missing — setBudget will fail on CLI path"
 fi
