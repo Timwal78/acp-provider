@@ -1,13 +1,8 @@
 {
-  "name": "acp-provider",
-  "version": "2.0.0",
-  "description": "ACP Provider Server for scriptmasterlabs — sells 18 API endpoints on the ACP marketplace (crypto/DeFi, federal contracting, on-chain analytics)",
-  "main": "provider.py",
-  "scripts": {
-    "start": "bash startup.sh"
-  },
-  "dependencies": {},
-  "engines": {
-    "node": ">=20"
+  "name": "acp-provider-scriptmasterlabs",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@virtuals-protocol/acp-node-v2": "0.1.8"
   }
 }

@@ -1,31 +1,35 @@
 #!/usr/bin/env bash
 # ============================================================
 # Render Background Worker Startup Script
-# Reconstructs ACP credentials from env vars, then launches provider.
+# Reconstructs ACP credentials from env vars, then launches:
+#   1) live_provider.mjs  — in-process setBudget + submit (SESSION_NOT_FOUND fix)
+#   2) provider.py        — REST poll / logging / price cache
 #
-# AUTH MODEL (auth-optional):
-#   REQUIRED: ACP_AGENT_WALLET_ADDRESS (x402 payment recipient)
-#   OPTIONAL: ACP_REFRESH_TOKEN (enables ACP marketplace job intake)
-#
-# If auth is missing or fails, the HTTP server still boots and serves
-# all x402/A2A/MCP endpoints. Only ACP job intake is affected.
+# AUTH MODEL:
+#   REQUIRED: ACP_AGENT_WALLET_ADDRESS, ACP_CONFIG_JSON, ACP_SIGNER_KEYS_JSON, ACP_KEYRING_KEY_B64
+#   OPTIONAL: ACP_REFRESH_TOKEN (job intake). ACP_ACCESS_TOKEN seed optional (minted from refresh).
 # ============================================================
 set -e
 
 echo "[startup] ACP Provider for Render — starting..."
 
 # --- Reconstruct ACP config from env vars ---
-mkdir -p /opt/acp-config/acp-cli /opt/acp-config/keyring
+mkdir -p /opt/acp-config/acp-cli /opt/acp-config/keyring /opt/acp-config/keyring
 
 if [ -z "$ACP_CONFIG_JSON" ]; then
     echo "[startup] ERROR: ACP_CONFIG_JSON env var not set"; exit 1
 fi
 echo "$ACP_CONFIG_JSON" > /opt/acp-config/config.json
+# Also expose where Node live_provider looks by default
+cp /opt/acp-config/config.json /opt/acp-config/acp-cli/../config.json 2>/dev/null || true
 echo "[startup] Wrote config.json"
 
 if [ -z "$ACP_SIGNER_KEYS_JSON" ]; then
     echo "[startup] ERROR: ACP_SIGNER_KEYS_JSON env var not set"; exit 1
 fi
+echo "$ACP_SIGNER_KEYS_JSON" > /opt/acp-config/acp-cli/signer-keys.json
+# CLI also reads ~/.config/acp-cli via XDG
+mkdir -p /opt/acp-config/acp-cli
 echo "$ACP_SIGNER_KEYS_JSON" > /opt/acp-config/acp-cli/signer-keys.json
 echo "[startup] Wrote signer-keys.json"
 
@@ -37,34 +41,97 @@ chmod 600 /opt/acp-config/keyring/file.key
 echo "[startup] Wrote keyring/file.key"
 
 export ACP_CONFIG_DIR=/opt/acp-config
+export ACP_CONFIG=/opt/acp-config/config.json
+export XDG_CONFIG_HOME=/opt/acp-config
+export XDG_DATA_HOME=/opt/acp-config
+export TS_KEYRING_BACKEND=file
+# Point acp-cli at reconstructed config + signer store
+export HOME=/opt/acp-config/home
+mkdir -p "$HOME/.config" "$HOME/.local/share"
+ln -sfn /opt/acp-config/config.json /opt/acp-config/config.json
+mkdir -p "$HOME/.config/acp-cli" "$HOME/.config/keyring" "$HOME/.local/share/keyring" "$HOME/.config/acp"
+ln -sfn /opt/acp-config/acp-cli/signer-keys.json "$HOME/.config/acp-cli/signer-keys.json"
+ln -sfn /opt/acp-config/keyring/file.key "$HOME/.config/keyring/file.key"
+ln -sfn /opt/acp-config/config.json "$HOME/.config/acp/config.json"
 
-# --- Wallet address (required for x402 payments) ---
+# --- Wallet address ---
 ACP_AGENT_WALLET_ADDRESS=$(echo -n "$ACP_AGENT_WALLET_ADDRESS" | tr -d '[:space:]')
 if [ -z "$ACP_AGENT_WALLET_ADDRESS" ]; then
     echo "[startup] ERROR: ACP_AGENT_WALLET_ADDRESS env var not set"; exit 1
 fi
 export ACP_AGENT_WALLET_ADDRESS
 
-# --- Refresh token (optional — enables ACP marketplace job intake) ---
+# --- Tokens: PRESERVE access seed from env; never wipe it ---
 ACP_REFRESH_TOKEN=$(echo -n "${ACP_REFRESH_TOKEN:-}" | tr -d '[:space:]' | tr -d '"' | tr -d "'")
-ACP_ACCESS_TOKEN=""
-if [ -z "$ACP_REFRESH_TOKEN" ]; then
-    echo "[startup] WARNING: ACP_REFRESH_TOKEN not set. HTTP/x402/A2A/MCP will work. ACP job intake disabled."
-else
-    echo "[startup] Auth inputs: refresh=${#ACP_REFRESH_TOKEN} chars, wallet=$ACP_AGENT_WALLET_ADDRESS"
-fi
-export ACP_REFRESH_TOKEN ACP_ACCESS_TOKEN
+ACP_ACCESS_TOKEN=$(echo -n "${ACP_ACCESS_TOKEN:-}" | tr -d '[:space:]' | tr -d '"' | tr -d "'")
 
-# --- Write tokens to file keyring (so CLI can auto-refresh if token exists) ---
-export XDG_CONFIG_HOME=/opt/acp-config
-export XDG_DATA_HOME=/opt/acp-config
-export TS_KEYRING_BACKEND=file
+# Normalize base64-wrapped JWT (chat paste artifact)
+if [ -n "$ACP_ACCESS_TOKEN" ] && [[ "$ACP_ACCESS_TOKEN" != eyJ* ]]; then
+    DECODED=$(printf '%s' "$ACP_ACCESS_TOKEN" | base64 -d 2>/dev/null || true)
+    if [[ "$DECODED" == eyJ* ]]; then
+        ACP_ACCESS_TOKEN="$DECODED"
+        echo "[startup] Access token normalized from base64 → JWT (${#ACP_ACCESS_TOKEN} chars)"
+    fi
+fi
+
+if [ -z "$ACP_REFRESH_TOKEN" ]; then
+    echo "[startup] WARNING: ACP_REFRESH_TOKEN not set. Job intake disabled."
+else
+    echo "[startup] Auth inputs: refresh=${#ACP_REFRESH_TOKEN} chars, access_seed=${#ACP_ACCESS_TOKEN} chars, wallet=$ACP_AGENT_WALLET_ADDRESS"
+fi
+
+# Mint/refresh access if missing or expired (<10 min left)
+if [ -n "$ACP_REFRESH_TOKEN" ]; then
+    NEED_REFRESH=1
+    if [[ "$ACP_ACCESS_TOKEN" == eyJ* ]]; then
+        LEFT_MIN=$(python3 - <<'PY' "$ACP_ACCESS_TOKEN"
+import sys,json,base64,time
+tok=sys.argv[1]
+p=tok.split('.')[1]
+p += '=' * (-len(p)%4)
+try:
+    exp=json.loads(base64.urlsafe_b64decode(p)).get('exp') or 0
+    print(int((exp-time.time())/60))
+except Exception:
+    print(-1)
+PY
+)
+        if [ "$LEFT_MIN" -ge 10 ] 2>/dev/null; then
+            NEED_REFRESH=0
+            echo "[startup] Seed access still valid (left_min=$LEFT_MIN) — skip refresh"
+        else
+            echo "[startup] Seed access missing/expired (left_min=$LEFT_MIN) — refreshing"
+        fi
+    else
+        echo "[startup] No valid access seed — refreshing via API"
+    fi
+    if [ "$NEED_REFRESH" = "1" ]; then
+        RESP=$(curl -sS -X POST "https://api.acp.virtuals.io/auth/cli/refresh" \
+            -H "Content-Type: application/json" -H "User-Agent: Mozilla/5.0" \
+            -d "{\"refreshToken\":\"$ACP_REFRESH_TOKEN\"}" || true)
+        NEW_ACCESS=$(printf '%s' "$RESP" | python3 -c 'import sys,json;d=json.load(sys.stdin);x=d.get("data") or d;print(x.get("token") or x.get("accessToken") or "")' 2>/dev/null || true)
+        NEW_REFRESH=$(printf '%s' "$RESP" | python3 -c 'import sys,json;d=json.load(sys.stdin);x=d.get("data") or d;print(x.get("refreshToken") or "")' 2>/dev/null || true)
+        if [[ "$NEW_ACCESS" == eyJ* ]]; then
+            ACP_ACCESS_TOKEN="$NEW_ACCESS"
+            if [ -n "$NEW_REFRESH" ]; then
+                ACP_REFRESH_TOKEN="$NEW_REFRESH"
+                echo "[startup] Refresh OK — access=${#ACP_ACCESS_TOKEN} chars, refresh rotated (update Render env when convenient)"
+            else
+                echo "[startup] Refresh OK — access=${#ACP_ACCESS_TOKEN} chars"
+            fi
+        else
+            echo "[startup] WARNING: refresh failed: ${RESP:0:200}"
+        fi
+    fi
+fi
+
+export ACP_REFRESH_TOKEN ACP_ACCESS_TOKEN
 
 echo "[startup] Verifying ACP CLI..."
 acp --version || (echo "[startup] Installing ACP CLI..." && npm i -g @virtuals-protocol/acp-cli)
 acp --version
 
-# Only write keyring if we have a refresh token
+# Write tokens to file keyring for CLI + provider.py
 if [ -n "$ACP_REFRESH_TOKEN" ]; then
     echo "[startup] Writing tokens to file keyring..."
     node -e "
@@ -72,7 +139,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const wallet = process.argv[1];
-const accessToken = process.argv[2];
+const accessToken = process.argv[2] || '';
 const refreshToken = process.argv[3];
 const ownerWallet = process.argv[4] || wallet;
 const keyPath = path.join(process.env.XDG_CONFIG_HOME, 'keyring', 'file.key');
@@ -98,25 +165,44 @@ const output = Buffer.concat([Buffer.from([1]), iv, authTag, encrypted]);
 const dataPath = path.join(process.env.XDG_DATA_HOME, 'keyring', 'secrets.json');
 fs.mkdirSync(path.dirname(dataPath), { recursive: true });
 fs.writeFileSync(dataPath, output, { mode: 0o600 });
-console.log('[startup] Tokens written to file keyring');
+// also under HOME layout
+const homeData = path.join(process.env.HOME || '', '.local/share/keyring/secrets.json');
+if (process.env.HOME) {
+  fs.mkdirSync(path.dirname(homeData), { recursive: true });
+  fs.writeFileSync(homeData, output, { mode: 0o600 });
+}
+console.log('[startup] Tokens written to file keyring (access=' + (accessToken||'').length + ' chars)');
 " "$ACP_AGENT_WALLET_ADDRESS" "$ACP_ACCESS_TOKEN" "$ACP_REFRESH_TOKEN" "0x25f2603be53bd4bed38aea500cb60fd10e7469ea" 2>&1 || {
         echo "[startup] WARNING: Could not write tokens to file keyring"
     }
 
-    # Verify agent identity (non-fatal)
     WHOAMI_OUT=$(acp agent whoami --json 2>&1) || true
-    if echo "$WHOAMI_OUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'[startup] Agent identity verified: {d[\"name\"]} ({d[\"id\"]})')" 2>/dev/null; then
+    if echo "$WHOAMI_OUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'[startup] Agent identity verified: {d.get(\"name\")} ({d.get(\"id\")})')" 2>/dev/null; then
         :
     else
-        echo "[startup] WARNING: Could not verify agent identity via CLI. Continuing anyway."
+        echo "[startup] WARNING: whoami failed (continuing). out=${WHOAMI_OUT:0:160}"
     fi
 else
-    echo "[startup] Skipping keyring write (no refresh token). Provider will run without ACP job intake."
+    echo "[startup] Skipping keyring write (no refresh token)."
 fi
 
-echo "[startup] All checks passed. Launching provider..."
+# Install acp-node-v2 deps for live_provider if package.json present
+if [ -f /app/package.json ]; then
+    echo "[startup] Ensuring node deps for live_provider..."
+    (cd /app && npm install --omit=dev --no-audit --no-fund 2>&1 | tail -5) || echo "[startup] WARNING: npm install failed"
+fi
+
+echo "[startup] All checks passed. Launching live_provider + provider..."
 echo ""
 
-# Launch the provider
 cd /app
+
+# Live in-process agent (setBudget + submit). Critical — CLI one-shot hits SESSION_NOT_FOUND.
+if [ -f /app/live_provider.mjs ]; then
+    node /app/live_provider.mjs >> /app/live_provider.log 2>&1 &
+    echo "[startup] live_provider.mjs pid $!"
+else
+    echo "[startup] WARNING: live_provider.mjs missing — setBudget will fail on CLI path"
+fi
+
 exec python3 provider.py
