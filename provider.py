@@ -2747,11 +2747,41 @@ def execute_and_submit(job):
     log(f"funded job={jid} offering={offering} → delegating submit to live_provider")
 
 
+def _job_provider_address(job):
+    """On-chain provider (seller) for this job, if present."""
+    if not isinstance(job, dict):
+        return ""
+    p = job.get("providerAddress") or job.get("provider_address")
+    if not p and isinstance(job.get("provider"), dict):
+        p = job["provider"].get("walletAddress") or job["provider"].get("address")
+    return (p or "").lower()
+
+
+def _is_seller_job(job):
+    """Only handle jobs where WE are the provider. Skip outbound client hires."""
+    prov = _job_provider_address(job)
+    if not prov:
+        # Missing provider field — allow (legacy shape); live_provider still role-checks
+        return True
+    return prov == AGENT_WALLET.lower()
+
+
 def process_job(job):
     if not isinstance(job, dict):
         return
     jid = _job_onchain_id(job)
     if not jid:
+        return
+    # Monetization filter: never setBudget/submit when we are the client
+    if not _is_seller_job(job):
+        if jid not in HANDLED_BUDGET:
+            log(
+                f"skip client-role job={jid} provider={_job_provider_address(job)[:12]} "
+                f"(we are buyer, not seller)",
+                "WARN",
+            )
+            HANDLED_BUDGET.add(jid)
+            HANDLED_SUBMIT.add(jid)
         return
     st = _map_status(job)
     offering = _job_offering_name(job)

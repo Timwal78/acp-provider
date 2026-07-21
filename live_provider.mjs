@@ -230,11 +230,48 @@ async function main() {
   const submitDone = new Set();
   const inflight = new Set();
 
+  function isProviderSession(session) {
+    // Only setBudget/submit when WE are the seller. Outbound client hires must be ignored.
+    const roles = session?.roles || [];
+    if (roles.length && !roles.includes("provider")) return false;
+    const prov = String(
+      session?.providerAddress ||
+        session?.provider?.walletAddress ||
+        session?.provider?.address ||
+        ""
+    ).toLowerCase();
+    if (prov && prov !== WALLET) return false;
+    const client = String(
+      session?.clientAddress ||
+        session?.client?.walletAddress ||
+        session?.client?.address ||
+        ""
+    ).toLowerCase();
+    // If we are clearly the client and not the provider, skip
+    if (client === WALLET && prov && prov !== WALLET) return false;
+    if (client === WALLET && !prov && roles.length && !roles.includes("provider")) {
+      return false;
+    }
+    return true;
+  }
+
   async function handle(session, source) {
     const jobId = String(session.jobId ?? session.onChainJobId ?? "");
     if (!jobId) return;
-    const roles = session.roles || [];
-    if (roles.length && !roles.includes("provider")) return;
+    if (!isProviderSession(session)) {
+      if (!budgetDone.has(`skip:${jobId}`)) {
+        log({
+          msg: "skip_client_role",
+          jobId,
+          source,
+          roles: session?.roles || [],
+          provider: session?.providerAddress || null,
+          client: session?.clientAddress || null,
+        });
+        budgetDone.add(`skip:${jobId}`);
+      }
+      return;
+    }
     const status = session.status || "";
     const key = `${jobId}:${status}:${source}`;
     if (inflight.has(key)) return;
@@ -346,6 +383,7 @@ async function main() {
   async function restOpenJobs() {
     // Fallback when api.getActiveJobs() returns HTML/Cloudflare or empty.
     // Mirrors provider.py: GET /agents/{id}/jobs with bearer token.
+    // CRITICAL: only jobs where we are providerAddress (seller monetization).
     const token =
       process.env.ACP_ACCESS_TOKEN ||
       process.env.ACP_TOKEN ||
@@ -382,12 +420,26 @@ async function main() {
       if (exp && exp < now) continue; // skip zombies
       const jobId = String(j.onChainJobId || "");
       if (!jobId) continue;
+      const prov = String(
+        j.providerAddress ||
+          j.provider?.walletAddress ||
+          j.provider?.address ||
+          ""
+      ).toLowerCase();
+      // Skip outbound client hires (we are buyer)
+      if (prov && prov !== WALLET) continue;
+      const client = String(
+        j.clientAddress || j.client?.walletAddress || j.client?.address || ""
+      ).toLowerCase();
+      if (client === WALLET && prov && prov !== WALLET) continue;
       out.push({
         onChainJobId: jobId,
         jobId,
         chainId: j.chainId || 8453,
         jobStatus: st,
         offering: j.description || null,
+        providerAddress: prov || WALLET,
+        clientAddress: client || null,
       });
     }
     return out;
