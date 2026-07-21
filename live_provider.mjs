@@ -219,9 +219,11 @@ async function main() {
     builderCode: entry.builderCode,
   });
 
+  // acp-node-v2 0.1.7 = {provider}; 0.1.8+ = {evmProvider}. Pass both.
   const agent = await AcpAgent.create({
     contractAddresses: ACP_CONTRACT_ADDRESSES,
-    provider,
+    provider, // 0.1.7
+    evmProvider: provider, // 0.1.8+ (Render npm install)
   });
 
   const budgetDone = new Set();
