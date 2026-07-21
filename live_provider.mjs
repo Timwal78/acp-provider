@@ -381,22 +381,14 @@ async function main() {
   }
 
   async function restOpenJobs() {
-    // Fallback when api.getActiveJobs() returns HTML/Cloudflare or empty.
-    // Mirrors provider.py: GET /agents/{id}/jobs with bearer token.
-    // CRITICAL: only jobs where we are providerAddress (seller monetization).
-    const token =
-      process.env.ACP_ACCESS_TOKEN ||
-      process.env.ACP_TOKEN ||
-      "";
+    // Public REST job list — NO JWT required (proven). Seller-only filter below.
     const agentId =
       entry.id ||
       process.env.ACP_AGENT_ID ||
       "019f5f40-c194-7776-b5e1-7a666ce631c0";
-    if (!token || !token.startsWith("eyJ")) return [];
     const url = `${ACP_SERVER_URL || "https://api.acp.virtuals.io"}/agents/${agentId}/jobs?limit=50`;
     const res = await fetch(url, {
       headers: {
-        Authorization: `Bearer ${token}`,
         Accept: "application/json",
         "User-Agent": "scriptmasterlabs-live-provider/1.0",
       },
@@ -417,7 +409,7 @@ async function main() {
         continue;
       }
       const exp = j.expiredAt ? Date.parse(j.expiredAt) : 0;
-      if (exp && exp < now) continue; // skip zombies
+      if (exp && exp < now) continue;
       const jobId = String(j.onChainJobId || "");
       if (!jobId) continue;
       const prov = String(
@@ -426,7 +418,6 @@ async function main() {
           j.provider?.address ||
           ""
       ).toLowerCase();
-      // Skip outbound client hires (we are buyer)
       if (prov && prov !== WALLET) continue;
       const client = String(
         j.clientAddress || j.client?.walletAddress || j.client?.address || ""
