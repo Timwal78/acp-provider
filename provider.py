@@ -2533,6 +2533,9 @@ ENDPOINTS = {
     "compliance_anomaly_report": api_compliance_anomaly_report,
     "compliance_bank_audit": api_compliance_bank_audit,
     "compliance_regulator_query": api_compliance_regulator_query,
+
+    # --- Catalog extras (bulk free-feed endpoints; catalog_extra.py) ---
+    **{k: v for k, v in __import__("catalog_extra").EXTRA_ENDPOINTS.items()},
 }
 
 # ============================================================

@@ -20,6 +20,7 @@ import os
 from flask import Flask, jsonify, request
 
 from provider import ENDPOINTS as PROVIDER_ENDPOINTS
+from catalog_extra import EXTRA_PRICES_USD
 from x402_flask import x402_guard, register_x402_discovery
 
 app = Flask(__name__)
@@ -87,6 +88,8 @@ _PRICES_USD = {
     "sam_entity_verification":          "0.40",
     "federal_spending_by_agency":       "0.30",
     "excluded_parties_check":           "0.25",
+    # --- Catalog extras ---
+    **EXTRA_PRICES_USD,
 }
 
 assert set(_PRICES_USD) == set(PROVIDER_ENDPOINTS), \

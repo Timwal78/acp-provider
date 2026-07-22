@@ -24,6 +24,8 @@ COPY x402_flask.py .
 COPY x402_server.py .
 COPY a2a_agent_card.py .
 COPY mcp_server.py .
+COPY rwa_engine.py .
+COPY catalog_extra.py .
 COPY a2a_broadcast.py .
 COPY requirements-x402.txt .
 
