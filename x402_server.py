@@ -45,6 +45,11 @@ _PRICES_USD = {
     "new_token_detection":              "0.20",
     "gas_tracker":                      "0.15",
     "stablecoin_flow_tracker":          "0.25",
+    "rwa_assets":                      "0.25",
+    "rwa_valuation":                   "0.35",
+    "rwa_risk":                        "0.25",
+    "rwa_aggregates":                  "0.25",
+    "rwa_intelligence":                "0.35",
     "wallet_analyzer":                  "0.40",
     "wallet_analysis":                  "0.40",  # SEO alias → wallet_analyzer
     "airdrop_check":                    "0.30",

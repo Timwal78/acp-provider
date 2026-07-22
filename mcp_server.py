@@ -326,6 +326,14 @@ def _category_for(name: str) -> str:
         "defi_tvl_ranking",
     }:
         return "Crypto & DeFi"
+    if name in {
+        "rwa_assets",
+        "rwa_valuation",
+        "rwa_risk",
+        "rwa_aggregates",
+        "rwa_intelligence",
+    }:
+        return "RWA"
     if name == "druckenmiller_macro_regime_analysis":
         return "Macro"
     if name == "ai_fact_check":

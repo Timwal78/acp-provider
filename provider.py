@@ -2432,6 +2432,41 @@ def api_rugpull_detector(params):
         "lp_holder_count": token_info.get("lp_holder_count"),
     })}
 
+
+# ============================================================
+# RWA ENGINE (ownable — scriptmasterlabs/rwa_engine.py)
+# ============================================================
+def api_rwa_assets(params):
+    """List/filter tokenized RWA assets with valuation + risk.
+    Req: { asset_class?, chain?, q?, min_tvl_usd?, limit? }
+    """
+    from rwa_engine import list_assets
+    return {"result": __import__("json").dumps(list_assets(params or {}), default=str)}
+
+def api_rwa_valuation(params):
+    """Valuation snapshot for one RWA id/symbol (e.g. buidl, ondo, paxg).
+    Req: { id|asset_id|symbol }
+    """
+    from rwa_engine import get_valuation
+    return {"result": __import__("json").dumps(get_valuation(params or {}), default=str)}
+
+def api_rwa_risk(params):
+    """Heuristic RWA risk score (not a credit rating).
+    Req: { id|asset_id|symbol }
+    """
+    from rwa_engine import get_risk
+    return {"result": __import__("json").dumps(get_risk(params or {}), default=str)}
+
+def api_rwa_aggregates(params):
+    """Aggregate RWA TVL/value by class + top assets."""
+    from rwa_engine import aggregates
+    return {"result": __import__("json").dumps(aggregates(params or {}), default=str)}
+
+def api_rwa_intelligence(params):
+    """Unified RWA agent entrypoint. action=list|valuation|risk|aggregates."""
+    from rwa_engine import rwa_intelligence
+    return rwa_intelligence(params or {})
+
 # ============================================================
 # ENDPOINT REGISTRY
 # ============================================================
@@ -2453,6 +2488,11 @@ ENDPOINTS = {
     "wallet_analyzer": api_wallet_analyzer,
     "gas_tracker": api_gas_tracker,
     "stablecoin_flow_tracker": api_stablecoin_flow_tracker,
+    "rwa_assets": api_rwa_assets,
+    "rwa_valuation": api_rwa_valuation,
+    "rwa_risk": api_rwa_risk,
+    "rwa_aggregates": api_rwa_aggregates,
+    "rwa_intelligence": api_rwa_intelligence,
     "trending_tokens": api_trending_tokens,
     "smart_money_alerts": api_smart_money_alerts,
     "new_token_detection": api_new_token_detection,
@@ -2638,6 +2678,11 @@ def lookup_price(offering_name):
         "excluded_parties_check": 0.05,
         "stablecoin_flow_tracker": 0.01,
         "gas_tracker": 0.01,
+        "rwa_assets": 0.02,
+        "rwa_valuation": 0.03,
+        "rwa_risk": 0.02,
+        "rwa_aggregates": 0.02,
+        "rwa_intelligence": 0.03,
     }
     return defaults.get(offering_name, 0.01)
 
