@@ -161,6 +161,86 @@ RWA_REGISTRY: list[dict[str, Any]] = [
         "tags": ["treasuries", "fund"],
         "notes": "Short-term US treasury fund token narrative.",
     },
+
+    {
+        "id": "franklin_onchain",
+        "name": "Franklin Templeton OnChain",
+        "symbol": "BENJI",
+        "asset_class": "tokenized_treasuries",
+        "issuer": "Franklin Templeton",
+        "chains": ["multi-chain"],
+        "llama_name": "Franklin Templeton",
+        "coingecko_id": None,
+        "contracts": {},
+        "tags": ["treasuries", "institutional", "fund"],
+        "notes": "Traditional asset manager on-chain money market / treasury product narrative.",
+    },
+    {
+        "id": "hashnote_usyc",
+        "name": "Hashnote USYC",
+        "symbol": "USYC",
+        "asset_class": "tokenized_treasuries",
+        "issuer": "Hashnote / Circle",
+        "chains": ["multi-chain"],
+        "llama_name": "Hashnote",
+        "coingecko_id": None,
+        "contracts": {},
+        "tags": ["treasuries"],
+        "notes": "Short-duration treasury product; may alias with Circle USYC feeds.",
+    },
+    {
+        "id": "mountain_usdm",
+        "name": "Mountain Protocol USDM",
+        "symbol": "USDM",
+        "asset_class": "tokenized_treasuries",
+        "issuer": "Mountain Protocol",
+        "chains": ["multi-chain"],
+        "llama_name": "Mountain Protocol",
+        "coingecko_id": "mountain-protocol-usdm",
+        "contracts": {},
+        "tags": ["treasuries", "yield_stable"],
+        "notes": "Yield-bearing stable / T-bill backed style dollar.",
+    },
+    {
+        "id": "goldfinch",
+        "name": "Goldfinch",
+        "symbol": "GFI",
+        "asset_class": "private_credit",
+        "issuer": "Goldfinch",
+        "chains": ["ethereum"],
+        "llama_name": "Goldfinch",
+        "coingecko_id": "goldfinch",
+        "contracts": {},
+        "tags": ["private_credit", "emerging_markets"],
+        "notes": "Private credit protocol with real-world borrower pools.",
+    },
+    {
+        "id": "backedu",
+        "name": "Backed Finance",
+        "symbol": "BACKED",
+        "asset_class": "tokenized_securities",
+        "issuer": "Backed",
+        "chains": ["multi-chain"],
+        "llama_name": "Backed",
+        "coingecko_id": None,
+        "contracts": {},
+        "tags": ["stocks", "etf", "securities"],
+        "notes": "Tokenized securities / bTokens style products.",
+    },
+    {
+        "id": "polymesh_rwa",
+        "name": "Polymesh",
+        "symbol": "POLYX",
+        "asset_class": "rwa_protocol",
+        "issuer": "Polymesh",
+        "chains": ["polymesh"],
+        "llama_name": "Polymesh",
+        "coingecko_id": "polymesh",
+        "contracts": {},
+        "tags": ["securities", "compliance_chain"],
+        "notes": "Securities-focused L1 / infrastructure for regulated assets.",
+    },
+
 ]
 
 
@@ -408,6 +488,30 @@ def list_assets(params: dict[str, Any] | None = None) -> dict[str, Any]:
         limit = min(int(params.get("limit") or 25), 100)
     except Exception:
         limit = 25
+    max_risk = params.get("max_risk") or params.get("risk_lt")
+    try:
+        max_risk_f = float(max_risk) if max_risk not in (None, "") else None
+    except Exception:
+        max_risk_f = None
+    # constraint DSL: "class=tokenized_treasuries,risk<40,min_tvl=1e8"
+    constraint = (params.get("constraint") or params.get("where") or "").strip()
+    if constraint:
+        for part in re.split(r"[;,]", constraint):
+            part=part.strip()
+            if not part:
+                continue
+            m=re.match(r"class\s*=\s*([\w\-]+)", part, re.I)
+            if m and not asset_class:
+                asset_class=m.group(1).lower()
+            m=re.match(r"risk\s*<\s*([0-9.]+)", part, re.I)
+            if m and max_risk_f is None:
+                max_risk_f=float(m.group(1))
+            m=re.match(r"min_tvl\s*=\s*([0-9.eE+]+)", part, re.I)
+            if m and min_tvl_f is None:
+                min_tvl_f=float(m.group(1))
+            m=re.match(r"chain\s*=\s*([\w\-]+)", part, re.I)
+            if m and not chain:
+                chain=m.group(1).lower()
 
     protocols = fetch_llama_rwa_protocols()
     cg_ids = [r["coingecko_id"] for r in RWA_REGISTRY if r.get("coingecko_id")]
@@ -480,6 +584,13 @@ def list_assets(params: dict[str, Any] | None = None) -> dict[str, Any]:
                     return False
             except Exception:
                 return False
+        if max_risk_f is not None:
+            rs = ((row.get("risk") or {}).get("risk_score"))
+            try:
+                if rs is None or float(rs) >= max_risk_f:
+                    return False
+            except Exception:
+                return False
         return True
 
     filtered = [r for r in rows if ok(r)]
@@ -503,6 +614,8 @@ def list_assets(params: dict[str, Any] | None = None) -> dict[str, Any]:
             "chain": chain or None,
             "q": q or None,
             "min_tvl_usd": min_tvl_f,
+            "max_risk": max_risk_f,
+            "constraint": constraint or None,
             "limit": limit,
         },
         "registry_size": len(RWA_REGISTRY),

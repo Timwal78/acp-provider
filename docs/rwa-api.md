@@ -1,6 +1,6 @@
 # ScriptMasterLabs RWA API (ownable)
 
-**Status:** engine LIVE in provider/x402 codepath (2026-07-22)
+**Status:** engine LIVE + **x402 routes returning 402** on `acp-x402-scriptmasterlabs.onrender.com` (2026-07-22)
 
 ## What we own
 - Curated asset registry (`rwa_engine.RWA_REGISTRY`)
