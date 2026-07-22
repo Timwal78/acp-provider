@@ -430,7 +430,16 @@ def api_stablecoin_flow_tracker(params):
     total_mcap = sum(s["market_cap_usd"] for s in stablecoins if s["market_cap_usd"])
     total_vol = sum(s["volume_24h_usd"] for s in stablecoins if s["volume_24h_usd"])
 
-    return {
+    # Optional symbols filter (comma-separated), e.g. "USDT,USDC"
+    symbols = (params.get("symbols") or "").strip()
+    if symbols:
+        want = {s.strip().upper() for s in symbols.split(",") if s.strip()}
+        if want:
+            stablecoins = [s for s in stablecoins if (s.get("symbol") or "").upper() in want]
+            total_mcap = sum(s["market_cap_usd"] for s in stablecoins if s["market_cap_usd"])
+            total_vol = sum(s["volume_24h_usd"] for s in stablecoins if s["volume_24h_usd"])
+
+    payload = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "total_stablecoin_mcap_usd": round(total_mcap, 2),
         "total_stablecoin_volume_24h_usd": round(total_vol, 2),
@@ -445,6 +454,8 @@ def api_stablecoin_flow_tracker(params):
             "total_volume_24h_usd": g.get("total_volume", {}).get("usd", 0),
         },
     }
+    # ACP deliverable schema expects {result: string}
+    return {"result": json.dumps(payload)}
 
 
 # ============================================================
@@ -1749,7 +1760,14 @@ def api_druckenmiller_macro_regime_analysis(params):
     # Get stablecoin flow
     stable_data = api_stablecoin_flow_tracker({})
     if stable_data:
-        macro_data["stablecoin_flows"] = stable_data
+        # Handler now returns ACP {result: json-string}; unwrap for internal use
+        if isinstance(stable_data, dict) and "result" in stable_data and isinstance(stable_data["result"], str):
+            try:
+                macro_data["stablecoin_flows"] = json.loads(stable_data["result"])
+            except Exception:
+                macro_data["stablecoin_flows"] = stable_data
+        else:
+            macro_data["stablecoin_flows"] = stable_data
     # Get perp funding as liquidity proxy
     funding_data = api_perp_funding_aggregator({"top_n": 10})
     if funding_data and "markets" in funding_data:
@@ -2434,6 +2452,7 @@ ENDPOINTS = {
     "airdrop_check": api_airdrop_check,
     "wallet_analyzer": api_wallet_analyzer,
     "gas_tracker": api_gas_tracker,
+    "stablecoin_flow_tracker": api_stablecoin_flow_tracker,
     "trending_tokens": api_trending_tokens,
     "smart_money_alerts": api_smart_money_alerts,
     "new_token_detection": api_new_token_detection,
@@ -2617,6 +2636,8 @@ def lookup_price(offering_name):
         "sam_entity_verification": 0.10,
         "federal_spending_by_agency": 0.10,
         "excluded_parties_check": 0.05,
+        "stablecoin_flow_tracker": 0.01,
+        "gas_tracker": 0.01,
     }
     return defaults.get(offering_name, 0.01)
 

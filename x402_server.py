@@ -44,6 +44,7 @@ _PRICES_USD = {
     "smart_money_alerts":               "0.25",
     "new_token_detection":              "0.20",
     "gas_tracker":                      "0.15",
+    "stablecoin_flow_tracker":          "0.25",
     "wallet_analyzer":                  "0.40",
     "wallet_analysis":                  "0.40",  # SEO alias → wallet_analyzer
     "airdrop_check":                    "0.30",

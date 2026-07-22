@@ -317,6 +317,15 @@ def _category_for(name: str) -> str:
         "osha_inspection_records",
     }:
         return "Regulatory"
+    if name in {
+        "gas_tracker",
+        "stablecoin_flow_tracker",
+        "perp_funding_aggregator",
+        "market_regime_indicator",
+        "defi_yield_rates",
+        "defi_tvl_ranking",
+    }:
+        return "Crypto & DeFi"
     if name == "druckenmiller_macro_regime_analysis":
         return "Macro"
     if name == "ai_fact_check":
