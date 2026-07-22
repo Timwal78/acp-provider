@@ -197,32 +197,120 @@ def _rlusd_requirements(price_rlusd: str, description: str, resource: str) -> "d
     }
 
 
-def _402(requirements: dict, reason: str = ""):
-    accepts = [requirements]
-    rlusd = _rlusd_requirements(
-        price_rlusd=str(float(requirements["maxAmountRequired"]) / 1_000_000),
-        description=requirements["description"],
-        resource=requirements["resource"],
-    )
-    if rlusd is not None:
-        accepts.append(rlusd)
+def _bazaar_extensions(method: str = "GET", query_params: dict | None = None) -> dict:
+    """x402scan + Agentic.Market Bazaar extension block.
+
+    x402scan reads extensions.bazaar.schema.properties.input...
+    Agentic.Market reads extensions.bazaar.info (DiscoveryInfo shape).
+    Both are required for full registration — body-only 402s are rejected
+    as "No valid x402 response found" even when status is 402.
+    """
+    qp = query_params if isinstance(query_params, dict) else {}
+    # info wants flat example values, not JSON-schema descriptors
+    flat = {}
+    schema_props = {}
+    for k, v in qp.items():
+        if isinstance(v, dict) and "type" in v:
+            schema_props[k] = v
+            if "example" in v:
+                flat[k] = v["example"]
+            elif "default" in v:
+                flat[k] = v["default"]
+            elif v.get("type") in ("integer", "number"):
+                flat[k] = 0
+            elif v.get("type") == "boolean":
+                flat[k] = False
+            else:
+                flat[k] = ""
+        else:
+            flat[k] = v if v is not None else ""
+            schema_props[k] = {"type": "string", "description": str(k)}
+    info = {
+        "input": {"type": "http", "method": method, "queryParams": flat},
+        "output": {"example": {}},
+    }
+    schema = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+            "input": {
+                "type": "object",
+                "properties": {
+                    "type": {"type": "string", "const": "http"},
+                    "method": {"type": "string"},
+                    "queryParams": {
+                        "type": "object",
+                        "properties": schema_props,
+                    },
+                },
+                "required": ["type", "method"],
+            },
+            "output": {"properties": {"example": {}}},
+        },
+        "required": ["input"],
+    }
+    return {
+        "bazaar": {
+            "discoverable": True,
+            "info": info,
+            "schema": schema,
+        }
+    }
+
+
+def _402(requirements: dict, reason: str = "payment_required", query_params: dict | None = None):
+    """Emit a scanner-valid x402 v2 payment challenge.
+
+    Must match mcp-x402 / x402scan expectations:
+      - body.x402Version, body.error='payment_required', body.resource object,
+        body.accepts[], body.extensions.bazaar
+      - headers PAYMENT-REQUIRED + X-PAYMENT-REQUIRED = base64(JSON body)
+    """
+    # USDC/base accept only for scanner validity. RLUSD is a proprietary rail
+    # and is NOT a valid x402 accept entry for x402scan — attach only as
+    # optional second accept if configured, but keep primary exact/base clean.
+    accepts = [{
+        "scheme": requirements.get("scheme", "exact"),
+        "network": requirements.get("network", NETWORK),
+        "amount": requirements.get("amount") or requirements.get("maxAmountRequired"),
+        "maxAmountRequired": requirements.get("maxAmountRequired"),
+        "asset": requirements.get("asset"),
+        "payTo": requirements.get("payTo"),
+        "maxTimeoutSeconds": requirements.get("maxTimeoutSeconds", MAX_TIMEOUT),
+        "resource": requirements.get("resource"),
+        "description": requirements.get("description"),
+        "mimeType": requirements.get("mimeType", "application/json"),
+        "extra": requirements.get("extra") or {"name": "USD Coin", "version": "2"},
+    }]
+    # Do NOT append xrpl-invoice into accepts for the challenge that scanners
+    # validate — unknown schemes make the whole 402 "invalid". RLUSD stays on
+    # /.well-known/x402 rails metadata only.
+
+    err = (reason or "payment_required").strip()
+    if err in ("payment required", "Payment Required", ""):
+        err = "payment_required"
+
     body = {
-        "x402Version": X402_VERSION,
-        "error": reason,
-        # v2 top-level `resource` is an OBJECT, not the plain string each
-        # accept entry still carries for backward compat. Missing this was
-        # confirmed (via the sibling mcp-x402 deployment's own debugging
-        # history) to make x402scan/Bazaar discovery reject the response
-        # outright rather than just flag it as outdated.
+        "x402Version": int(X402_VERSION) if not isinstance(X402_VERSION, int) else X402_VERSION,
+        "error": err,
         "resource": {
             "url": requirements["resource"],
             "description": requirements["description"],
-            "mimeType": requirements["mimeType"],
+            "mimeType": requirements.get("mimeType", "application/json"),
         },
         "accepts": accepts,
+        "extensions": _bazaar_extensions("GET", query_params),
     }
+    header402 = base64.b64encode(
+        json.dumps(body, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    ).decode("ascii")
+
     resp = make_response(jsonify(body), 402)
     resp.headers["Content-Type"] = "application/json"
+    resp.headers["PAYMENT-REQUIRED"] = header402
+    resp.headers["X-PAYMENT-REQUIRED"] = header402
+    resp.headers["Access-Control-Expose-Headers"] = "PAYMENT-REQUIRED, X-PAYMENT-REQUIRED, X-PAYMENT-RESPONSE"
+    resp.headers["Access-Control-Allow-Origin"] = "*"
     return resp
 
 

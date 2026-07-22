@@ -154,6 +154,19 @@ app.register_blueprint(mcp_bp)
 #   GET /.well-known/x402        → x402 payment rails (existing, unchanged)
 
 
+
+@app.route("/favicon.ico")
+def favicon():
+    # Simple green mark — x402scan shows this at API root
+    svg = (
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 64\">"
+        "<rect width=\"64\" height=\"64\" rx=\"12\" fill=\"#0b0b10\"/>"
+        "<text x=\"50%\" y=\"54%\" text-anchor=\"middle\" font-size=\"28\" "
+        "font-family=\"monospace\" fill=\"#39FF14\">S</text></svg>"
+    )
+    from flask import Response
+    return Response(svg, mimetype="image/svg+xml")
+
 @app.route("/")
 @app.route("/api/status")
 def status():
