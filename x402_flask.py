@@ -260,10 +260,22 @@ def _facilitator(path: str, payment_payload: dict, requirements: dict) -> dict:
         return {"isValid": False, "success": False, "invalidReason": f"facilitator {r.status_code}: {r.text[:200]}"}
 
 
-def x402_guard(price_usdc: str, description: str, discoverable: bool = True):
+def x402_guard(price_usdc: str, description: str, discoverable: bool = True, path: str | None = None, name: str | None = None):
+    """path should be the public hyphen route, e.g. /x402/rwa-aggregates.
+    Never rely on fn.__name__ — nested views all become _view and break x402scan.
+    """
     def decorator(fn):
+        route_path = path or f"/{(name or fn.__name__).replace('_', '-')}"
+        if not route_path.startswith('/'):
+            route_path = '/' + route_path
         if discoverable:
-            DISCOVERY.append({"price_usdc": price_usdc, "description": description, "fn": fn.__name__})
+            DISCOVERY.append({
+                "price_usdc": str(price_usdc),
+                "description": description,
+                "path": route_path,
+                "name": name or fn.__name__,
+                "fn": fn.__name__,
+            })
 
         @wraps(fn)
         def wrapper(*args, **kwargs):
@@ -368,46 +380,180 @@ def x402_guard(price_usdc: str, description: str, discoverable: bool = True):
     return decorator
 
 
-def register_x402_discovery(app):
-    @app.route("/.well-known/x402")
-    def _x402_discovery():
-        cfg = USDC.get(NETWORK, USDC["base-sepolia"])
-        return jsonify({
-            "x402Version": X402_VERSION,
+def _public_base_url():
+    """Prefer explicit public URL; else rebuild from proxy headers as https."""
+    explicit = (os.environ.get("X402_PUBLIC_BASE") or os.environ.get("PUBLIC_BASE_URL") or "").rstrip("/")
+    if explicit:
+        return explicit
+    try:
+        from flask import request
+        proto = (request.headers.get("X-Forwarded-Proto") or request.scheme or "https").split(",")[0].strip()
+        host = request.headers.get("X-Forwarded-Host") or request.host
+        if "onrender.com" in (host or ""):
+            proto = "https"
+        return f"{proto}://{host}"
+    except Exception:
+        return "https://acp-x402-scriptmasterlabs.onrender.com"
+
+
+def _openapi_discovery_doc():
+    """OpenAPI 3.1 + x-payment-info — same shape x402scan indexes on mcp-x402."""
+    cfg = USDC.get(NETWORK, USDC["base-sepolia"])
+    base = _public_base_url()
+    paths = {}
+    resources = []
+    for d in DISCOVERY:
+        path = d.get("path") or ""
+        if not path or path in ("_view", "/_view"):
+            # skip broken legacy entries if any remain
+            continue
+        if not path.startswith("/"):
+            path = "/" + path
+        price = str(d["price_usdc"])
+        try:
+            units = str(int(round(float(price) * 1_000_000)))
+        except Exception:
+            units = "0"
+        name = d.get("name") or path.strip("/").replace("-", "_")
+        desc = d.get("description") or f"scriptmasterlabs — {name}"
+        op_id = "".join(p.capitalize() for p in name.replace("-", "_").split("_"))
+        paths[path] = {
+            "get": {
+                "operationId": op_id or name,
+                "summary": desc,
+                "description": f"{desc}. Pay {price} USDC on Base via x402, then retry with X-PAYMENT.",
+                "parameters": [],
+                "x-payment-info": {
+                    "method": "x402",
+                    "scheme": "exact",
+                    "network": NETWORK,
+                    "asset": cfg["asset"],
+                    "currency": "USDC",
+                    "amount": price,
+                    "amountUnits": units,
+                    "payTo": PAY_TO,
+                    "settlement": "facilitator",
+                    "facilitator": FACILITATOR,
+                    "paymentHeader": "X-PAYMENT",
+                    "protocols": ["x402"],
+                    "price": {"mode": "fixed", "currency": "USD", "amount": price},
+                },
+                "responses": {
+                    "200": {"description": "Paid JSON result"},
+                    "402": {"description": "Payment required — pay USDC on Base then retry with X-PAYMENT."},
+                },
+            }
+        }
+        resources.append({
+            "path": path,
+            "url": f"{base}{path}",
+            "name": name,
+            "description": desc,
+            "price": {"amount": price, "assets": ["USDC", "RLUSD"]},
+            "network": NETWORK,
+            "payTo": PAY_TO,
+            "facilitator": FACILITATOR,
+            "scheme": "exact",
+        })
+
+    # free discovery aliases
+    for free_path, op in [
+        ("/.well-known/x402", "openApiDiscovery"),
+        ("/x402/openapi.json", "openApiJsonAlias"),
+        ("/openapi.json", "openApiJson"),
+    ]:
+        paths[free_path] = {
+            "get": {
+                "operationId": op,
+                "summary": "OpenAPI/x402 discovery document (free).",
+                "security": [],
+                "responses": {"200": {"description": "OpenAPI spec."}},
+            }
+        }
+
+    return {
+        "openapi": "3.1.0",
+        "info": {
+            "title": "ScriptMasterLabs — ACP x402 Data API",
+            "version": "1.1.0",
+            "description": (
+                "Pay-per-call crypto, RWA, federal, SEC, and compliance APIs. "
+                "Settled in USDC on Base via x402. Hyphen routes only "
+                "(e.g. /x402/rwa-aggregates, /x402/gas-tracker)."
+            ),
+            "contact": {
+                "name": "ScriptMasterLabs",
+                "url": "https://www.scriptmasterlabs.com",
+                "email": "hello@scriptmasterlabs.com",
+            },
+        },
+        "servers": [{"url": base}],
+        "x-service-info": {
             "operator": "ScriptMasterLabs",
+            "agent": "scriptmasterlabs",
             "discoverable": True,
+            "categories": [
+                "rwa", "crypto", "defi", "gas", "sec-filings", "federal-contracts",
+                "compliance", "market-intelligence", "macro",
+            ],
+            "payment": {
+                "protocol": "x402",
+                "rails": [
+                    {
+                        "id": "base-usdc",
+                        "scheme": "exact",
+                        "network": NETWORK,
+                        "asset": cfg["asset"],
+                        "assetSymbol": "USDC",
+                        "payTo": PAY_TO,
+                        "facilitator": FACILITATOR,
+                        "settlement": "facilitator",
+                        "paymentHeader": "X-PAYMENT",
+                    }
+                ],
+            },
+            "docs": "https://timwal78.github.io/acp-provider/rwa-api.html",
             "ap2": {
                 "supported": True,
                 "mode": os.environ.get("AP2_MODE", "optional"),
                 "mandate_header": "X-AP2-MANDATE",
-                "spec": "https://ap2-protocol.org/specification/",
-                "note": "AP2 Intent/Cart/Payment mandates (W3C VCs) verified before honoring agent payments.",
             },
-            "rails": [
-                {
-                    "name": "Base / USDC (x402 standard)",
-                    "network": NETWORK,
-                    "asset": cfg["asset"],
-                    "assetSymbol": "USDC",
-                    "payTo": PAY_TO,
-                    "facilitator": FACILITATOR,
-                    "scheme": "exact",
-                },
-                {
-                    "name": "XRPL / RLUSD (402Proof invoice flow)",
-                    "network": "xrpl",
-                    "asset": "RLUSD",
-                    "assetIssuer": RLUSD_ISSUER,
-                    "invoiceEndpoint": f"{PROOF402_BASE}/v1/invoice",
-                    "verifyEndpoint":  f"{PROOF402_BASE}/v1/verify",
-                    "scheme": "xrpl-invoice",
-                },
-            ],
-            "resources": [
-                {"path": d["fn"],
-                 "price": {"amount": d["price_usdc"], "assets": ["USDC", "RLUSD"]},
-                 "description": d["description"]}
-                for d in DISCOVERY
-            ],
-        })
+        },
+        # dual format: OpenAPI paths (x402scan/mcp-x402 style) + resources array
+        "paths": paths,
+        "x402Version": X402_VERSION,
+        "discoverable": True,
+        "operator": "ScriptMasterLabs",
+        "rails": [
+            {
+                "name": "Base / USDC (x402 standard)",
+                "network": NETWORK,
+                "asset": cfg["asset"],
+                "assetSymbol": "USDC",
+                "payTo": PAY_TO,
+                "facilitator": FACILITATOR,
+                "scheme": "exact",
+                "paymentHeader": "X-PAYMENT",
+            },
+            {
+                "name": "XRPL / RLUSD (402Proof invoice flow)",
+                "network": "xrpl",
+                "asset": "RLUSD",
+                "assetIssuer": RLUSD_ISSUER,
+                "invoiceEndpoint": f"{PROOF402_BASE}/v1/invoice",
+                "verifyEndpoint": f"{PROOF402_BASE}/v1/verify",
+                "scheme": "xrpl-invoice",
+            },
+        ],
+        "resources": resources,
+    }
+
+
+def register_x402_discovery(app):
+    def _x402_discovery():
+        return jsonify(_openapi_discovery_doc())
+
+    app.add_url_rule("/.well-known/x402", endpoint="x402_discovery", view_func=_x402_discovery, methods=["GET"])
+    app.add_url_rule("/x402/openapi.json", endpoint="x402_openapi", view_func=_x402_discovery, methods=["GET"])
+    app.add_url_rule("/openapi.json", endpoint="openapi_json", view_func=_x402_discovery, methods=["GET"])
     return app

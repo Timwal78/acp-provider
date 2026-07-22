@@ -112,7 +112,14 @@ def _coerce_params(raw: dict) -> dict:
 
 
 def _make_view(name: str, fn, price_usd: str):
-    @x402_guard(price_usd, f"scriptmasterlabs — {name.replace('_', ' ')}")
+    route = f"/x402/{name.replace('_', '-')}"
+    @x402_guard(
+        price_usd,
+        f"scriptmasterlabs — {name.replace('_', ' ')}",
+        discoverable=True,
+        path=route,
+        name=name,
+    )
     def _view():
         return jsonify(fn(_coerce_params(request.args.to_dict())))
     _view.__name__ = f"x402_{name}"
