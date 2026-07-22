@@ -35,14 +35,17 @@ _PRICES_USD = {
     "perp_funding_aggregator":          "0.50",
     "market_regime_indicator":          "0.50",
     "defi_yield_rates":                 "0.30",
+    "defi_yield":                       "0.30",  # SEO alias → defi_yield_rates
     "defi_tvl_ranking":                 "0.30",
     "token_security_audit":             "0.30",
     "rugpull_detector":                 "0.25",
+    "honeypot_check":                   "0.25",  # SEO alias → rugpull_detector
     "trending_tokens":                  "0.20",
     "smart_money_alerts":               "0.25",
     "new_token_detection":              "0.20",
     "gas_tracker":                      "0.15",
     "wallet_analyzer":                  "0.40",
+    "wallet_analysis":                  "0.40",  # SEO alias → wallet_analyzer
     "airdrop_check":                    "0.30",
     "liquidation_risk_check":           "0.35",
     # --- SEC EDGAR filings ---
