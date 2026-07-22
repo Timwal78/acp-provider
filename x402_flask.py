@@ -47,7 +47,7 @@ FACILITATOR  = os.environ.get(
     "X402_FACILITATOR",
     "https://api.cdp.coinbase.com/platform/v2/x402" if _CDP_CONFIGURED else "https://x402.org/facilitator",
 ).rstrip("/")
-MAX_TIMEOUT  = int(os.environ.get("X402_MAX_TIMEOUT", "120"))
+MAX_TIMEOUT  = int(os.environ.get("X402_MAX_TIMEOUT", "300"))
 
 
 def _cdp_ed25519_private_key():
@@ -306,7 +306,7 @@ def _402(requirements: dict, reason: str = "payment_required", query_params: dic
     ).decode("ascii")
 
     resp = make_response(jsonify(body), 402)
-    resp.headers["Content-Type"] = "application/json"
+    resp.headers["Content-Type"] = "application/json; charset=utf-8"
     resp.headers["PAYMENT-REQUIRED"] = header402
     resp.headers["X-PAYMENT-REQUIRED"] = header402
     resp.headers["Access-Control-Expose-Headers"] = "PAYMENT-REQUIRED, X-PAYMENT-REQUIRED, X-PAYMENT-RESPONSE"
@@ -348,7 +348,7 @@ def _facilitator(path: str, payment_payload: dict, requirements: dict) -> dict:
         return {"isValid": False, "success": False, "invalidReason": f"facilitator {r.status_code}: {r.text[:200]}"}
 
 
-def x402_guard(price_usdc: str, description: str, discoverable: bool = True, path: str | None = None, name: str | None = None):
+def x402_guard(price_usdc: str, description: str, discoverable: bool = True, path: str | None = None, name: str | None = None, query_params: dict | None = None):
     """path should be the public hyphen route, e.g. /x402/rwa-aggregates.
     Never rely on fn.__name__ — nested views all become _view and break x402scan.
     """
@@ -363,6 +363,7 @@ def x402_guard(price_usdc: str, description: str, discoverable: bool = True, pat
                 "path": route_path,
                 "name": name or fn.__name__,
                 "fn": fn.__name__,
+                "query_params": query_params or {},
             })
 
         @wraps(fn)
@@ -420,24 +421,24 @@ def x402_guard(price_usdc: str, description: str, discoverable: bool = True, pat
                             "trustedIssuers": json.loads(os.environ.get("AP2_TRUSTED_ISSUERS", "{}")),
                         })
                         if not verdict["valid"]:
-                            return _402(reqs, f"AP2 mandate invalid: {verdict['reason']}")
+                            return _402(reqs, f"AP2 mandate invalid: {verdict['reason']}", query_params=query_params)
                     elif ap2_mode == "required":
-                        return _402(reqs, "AP2 mandate required: send X-AP2-MANDATE header (base64 VC bundle)")
+                        return _402(reqs, "AP2 mandate required: send X-AP2-MANDATE header (base64 VC bundle)", query_params=query_params)
                 except ImportError:
                     pass  # ap2 module unavailable — fall through to pure x402
 
             header = request.headers.get("X-PAYMENT")
             if not header:
-                return _402(reqs, "payment required")
+                return _402(reqs, "payment_required", query_params=query_params)
 
             try:
                 payment_payload = json.loads(base64.b64decode(header))
             except Exception:
-                return _402(reqs, "malformed X-PAYMENT header")
+                return _402(reqs, "malformed X-PAYMENT header", query_params=query_params)
 
             verify = _facilitator("/verify", payment_payload, reqs)
             if not verify.get("isValid", False):
-                return _402(reqs, f"invalid payment: {verify.get('invalidReason', 'unknown')}")
+                return _402(reqs, f"invalid payment: {verify.get('invalidReason', 'unknown')}", query_params=query_params)
 
             result = fn(*args, **kwargs)
 
@@ -505,12 +506,26 @@ def _openapi_discovery_doc():
         name = d.get("name") or path.strip("/").replace("-", "_")
         desc = d.get("description") or f"scriptmasterlabs — {name}"
         op_id = "".join(p.capitalize() for p in name.replace("-", "_").split("_"))
+        params_in = []
+        qp = d.get("query_params") or {}
+        for pk, pv in qp.items():
+            schema = {"type": pv.get("type", "string")} if isinstance(pv, dict) else {"type": "string"}
+            if isinstance(pv, dict) and "default" in pv:
+                schema["default"] = pv["default"]
+            params_in.append({
+                "name": pk,
+                "in": "query",
+                "required": False,
+                "schema": schema,
+                "description": (pv.get("description") if isinstance(pv, dict) else str(pk)),
+                **({"example": pv.get("example")} if isinstance(pv, dict) and "example" in pv else {}),
+            })
         paths[path] = {
             "get": {
                 "operationId": op_id or name,
                 "summary": desc,
                 "description": f"{desc}. Pay {price} USDC on Base via x402, then retry with X-PAYMENT.",
-                "parameters": [],
+                "parameters": params_in,
                 "x-payment-info": {
                     "method": "x402",
                     "scheme": "exact",
@@ -537,7 +552,7 @@ def _openapi_discovery_doc():
             "url": f"{base}{path}",
             "name": name,
             "description": desc,
-            "price": {"amount": price, "assets": ["USDC", "RLUSD"]},
+            "price": {"amount": price, "assets": ["USDC"]},
             "network": NETWORK,
             "payTo": PAY_TO,
             "facilitator": FACILITATOR,

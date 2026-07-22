@@ -114,14 +114,39 @@ def _coerce_params(raw: dict) -> dict:
     return coerced
 
 
+_KNOWN_QUERY_PARAMS = {
+    "crypto_price": {"ids": {"type": "string", "description": "CoinGecko ids csv", "example": "bitcoin,ethereum"}, "vs": {"type": "string", "example": "usd", "default": "usd"}},
+    "fx_rate": {"base": {"type": "string", "example": "USD", "default": "USD"}, "symbols": {"type": "string", "example": "EUR,GBP"}},
+    "gas_tracker": {"chain": {"type": "string", "example": "ethereum"}},
+    "rwa_intelligence": {"action": {"type": "string", "example": "list"}, "id": {"type": "string", "example": "buidl"}, "constraint": {"type": "string", "example": "class=tokenized_treasuries,risk<40"}},
+    "rwa_assets": {"asset_class": {"type": "string", "example": "tokenized_treasuries"}, "limit": {"type": "integer", "example": 10, "default": 25}},
+    "rwa_valuation": {"id": {"type": "string", "example": "ondo"}},
+    "rwa_risk": {"id": {"type": "string", "example": "buidl"}},
+    "defi_protocol_tvl": {"protocol": {"type": "string", "example": "aave"}},
+    "binance_funding": {"symbol": {"type": "string", "example": "BTCUSDT", "default": "BTCUSDT"}},
+    "binance_ticker": {"symbol": {"type": "string", "example": "BTCUSDT", "default": "BTCUSDT"}},
+    "dexscreener_search": {"q": {"type": "string", "example": "eth"}},
+    "openfda_drug_label": {"q": {"type": "string", "example": "ibuprofen"}},
+    "clinical_trials_search": {"q": {"type": "string", "example": "diabetes"}},
+    "sec_company_tickers": {"q": {"type": "string", "example": "AAPL"}},
+    "hyperliquid_all_mids": {"coin": {"type": "string", "example": "BTC"}},
+    "wallet_analyzer": {"wallet": {"type": "string", "example": "0x0000000000000000000000000000000000000000"}},
+    "wallet_analysis": {"wallet": {"type": "string", "example": "0x0000000000000000000000000000000000000000"}},
+    "trending_tokens": {"limit": {"type": "integer", "example": 10, "default": 10}},
+    "fear_greed_index": {"limit": {"type": "integer", "example": 1, "default": 1}},
+}
+
 def _make_view(name: str, fn, price_usd: str):
     route = f"/x402/{name.replace('_', '-')}"
+    nice = name.replace('_', ' ')
+    desc = f"ScriptMasterLabs {nice} API. Pay {price_usd} USDC on Base via x402 (X-PAYMENT), then retry."
     @x402_guard(
         price_usd,
-        f"scriptmasterlabs — {name.replace('_', ' ')}",
+        desc,
         discoverable=True,
         path=route,
         name=name,
+        query_params=_KNOWN_QUERY_PARAMS.get(name),
     )
     def _view():
         return jsonify(fn(_coerce_params(request.args.to_dict())))
