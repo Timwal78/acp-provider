@@ -385,24 +385,53 @@ def x402_guard(price_usdc: str, description: str, discoverable: bool = True, pat
                 resource = f"https://{host}{request.path}"
             reqs = _payment_requirements(price_usdc, description, resource)
 
-            # ── Operator/agent key bypass ──
-            # Mirrors proof402_integration.require_payment's bypass exactly:
-            # a request carrying a valid OPERATOR_API_KEY / OWNER_API_KEY / one
-            # of AGENT_API_KEYS skips on-chain x402 settlement. Needed for
-            # agents (e.g. LEVIATHAN) that already collected payment upstream
-            # via ACP and are calling this route as an authorized backend, not
-            # as a paying end-user — this decorator previously had no such
-            # bypass, so every ACP-resold job routed through it 402'd even
-            # after the buyer had already paid LEVIATHAN.
+            # ── Operator / marketplace key bypass ──
+            # Skip on-chain x402 when caller presents a pre-shared key.
+            # Used by: ACP resellers, ZylaLabs marketplace validation (SEND),
+            # and operator tools. Keys from env (comma-separated) plus optional
+            # baked marketplace key so directory validators get HTTP 200 with
+            # Authorization: Bearer <key> instead of a 402 challenge.
             auth_header = request.headers.get("Authorization", "")
-            bearer_key = auth_header.split("Bearer ")[-1].strip() if "Bearer " in auth_header else ""
+            bearer_key = ""
+            if auth_header.lower().startswith("bearer "):
+                bearer_key = auth_header.split(" ", 1)[1].strip()
+            elif "Bearer " in auth_header:
+                bearer_key = auth_header.split("Bearer ", 1)[-1].strip()
+            # Query fallbacks for importers that only hit the URL bar
+            q_key = (
+                request.args.get("api_key")
+                or request.args.get("apikey")
+                or request.args.get("key")
+                or ""
+            ).strip()
             passed_key = (
                 request.headers.get("X-Owner-Key")
                 or request.headers.get("X-API-Key")
+                or request.headers.get("X-Marketplace-Key")
+                or request.headers.get("X-Zyla-Key")
                 or bearer_key
+                or q_key
             )
-            agent_keys = [k.strip() for k in os.environ.get("AGENT_API_KEYS", "").split(",") if k.strip()]
-            valid_keys = [k for k in [os.environ.get("OPERATOR_API_KEY"), os.environ.get("OWNER_API_KEY")] if k] + agent_keys
+            def _split_keys(env_name: str) -> list[str]:
+                return [k.strip() for k in os.environ.get(env_name, "").split(",") if k.strip()]
+            agent_keys = _split_keys("AGENT_API_KEYS")
+            market_keys = _split_keys("MARKETPLACE_API_KEYS") + _split_keys("ZYLA_API_KEYS")
+            # Stable marketplace listing key (public in Postman collection).
+            # Override/disable with MARKETPLACE_API_KEYS / DISABLE_DEFAULT_MARKETPLACE_KEY=1
+            default_market = []
+            if os.environ.get("DISABLE_DEFAULT_MARKETPLACE_KEY", "").strip() not in ("1", "true", "yes"):
+                baked = os.environ.get(
+                    "DEFAULT_MARKETPLACE_API_KEY",
+                    "sml_zyla_omsV0ZcPr9mIQydptCqgC5QuFlV8FtE7",
+                ).strip()
+                if baked:
+                    default_market = [baked]
+            valid_keys = (
+                [k for k in [os.environ.get("OPERATOR_API_KEY"), os.environ.get("OWNER_API_KEY"), os.environ.get("ZYLA_API_KEY")] if k]
+                + agent_keys
+                + market_keys
+                + default_market
+            )
             if passed_key and passed_key in valid_keys:
                 return fn(*args, **kwargs)
 
