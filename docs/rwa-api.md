@@ -49,4 +49,4 @@ acp offering create   --name rwa_intelligence   --description "Ownable RWA intel
 5. Agent constraint query DSL (`yield>5`, `class=treasuries`, `risk<40`)
 
 ## Disclaimer
-Informational only. Not audited NAV, not proof-of-reserves, not investment advice.
+Informational only. Live public-feed composites + source-integrity hashes. Not a custodian legal PoR letter. Not investment advice.

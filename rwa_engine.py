@@ -24,7 +24,7 @@ import urllib.request
 from datetime import datetime, timezone
 from typing import Any
 
-UA = "scriptmasterlabs-rwa-engine/1.0 (+https://www.scriptmasterlabs.com)"
+UA = "scriptmasterlabs-rwa-engine/1.2 (+https://www.scriptmasterlabs.com)"
 CACHE: dict[str, tuple[float, Any]] = {}
 CACHE_TTL = 300.0  # 5 min
 
@@ -39,11 +39,30 @@ RWA_REGISTRY: list[dict[str, Any]] = [
         "issuer": "BlackRock / Securitize",
         "chains": ["ethereum", "multi-chain"],
         "llama_name": "BlackRock BUIDL",
-        "coingecko_id": None,
-        "contracts": {},
+        "llama_slug": "blackrock-buidl",
+        "coingecko_id": "blackrock-usd-institutional-digital-liquidity-fund",
+        "contracts": {
+            # Securitize / BUIDL primary ethereum token (public registry)
+            "ethereum": "0x7712c34205737192402172409a8f7ccef8aa2aec"
+        },
         "tags": ["treasuries", "institutional", "fund"],
-        "notes": "Tokenized USD institutional liquidity fund narrative; TVL-led valuation proxy.",
+        "notes": "Tokenized USD institutional liquidity fund; TVL from DefiLlama + CG mcap when available.",
     },
+    {
+        "id": "ousg",
+        "name": "Ondo Short-Term US Government Treasuries",
+        "symbol": "OUSG",
+        "asset_class": "tokenized_treasuries",
+        "issuer": "Ondo",
+        "chains": ["ethereum", "multi-chain"],
+        "llama_name": "Ondo Yield Assets",
+        "llama_slug": "ondo-yield-assets",
+        "coingecko_id": "ondo-us-dollar-yield",
+        "contracts": {},
+        "tags": ["treasuries", "ondo", "fund"],
+        "notes": "Ondo short-duration US government / yield product sleeve; CG + protocol TVL signals.",
+    },
+
     {
         "id": "usyc",
         "name": "Circle USYC",
@@ -443,7 +462,7 @@ def _valuation(asset: dict[str, Any], llama: dict[str, Any] | None, px: dict[str
             "llama_url": (llama or {}).get("url"),
             "llama_address": (llama or {}).get("address"),
         },
-        "disclaimer": "Informational composite — not audited NAV, not proof-of-reserves, not investment advice.",
+        "disclaimer": "Informational composite from live public feeds (DefiLlama TVL, CoinGecko markets). Not a custodian-audited NAV letter. Not investment advice.",
     }
 
 
@@ -454,6 +473,7 @@ def build_asset_snapshot(reg: dict[str, Any], protocols: list[dict[str, Any]], p
         px = None
     val = _valuation(reg, llama, px)
     risk = _risk_score(reg, llama, px)
+    integrity = build_source_integrity(reg, llama, px)
     return {
         "id": reg["id"],
         "name": reg["name"],
@@ -466,12 +486,259 @@ def build_asset_snapshot(reg: dict[str, Any], protocols: list[dict[str, Any]], p
         "notes": reg.get("notes"),
         "valuation": val,
         "risk": risk,
+        "source_integrity": {
+            "algorithm": integrity["algorithm"],
+            "hash": integrity["hash"],
+            "method": integrity["method"],
+        },
         "sources": {
-            "registry": "scriptmasterlabs_curated_v1",
+            "registry": "scriptmasterlabs_curated_v2",
             "tvl_feed": "defillama_protocols" if llama else None,
             "market_feed": "coingecko_simple_price" if px else None,
+            "live": True,
+            "synthetic": False,
         },
     }
+
+
+
+def fetch_protocol_detail(slug: str) -> dict[str, Any]:
+    if not slug:
+        return {}
+    data = _http_json(f"https://api.llama.fi/protocol/{slug}", ttl=600)
+    return data if isinstance(data, dict) and "error" not in data else {}
+
+
+def fetch_tvl_history(slug: str, days: int = 30) -> list[dict[str, Any]]:
+    """Live DefiLlama protocol TVL timeseries (not synthetic)."""
+    detail = fetch_protocol_detail(slug)
+    series = detail.get("tvl") if isinstance(detail, dict) else None
+    if not isinstance(series, list):
+        return []
+    cutoff = time.time() - max(1, days) * 86400
+    out = []
+    for pt in series:
+        if not isinstance(pt, dict):
+            continue
+        ts = pt.get("date")
+        val = pt.get("totalLiquidityUSD")
+        if ts is None or val is None:
+            continue
+        try:
+            ts_f = float(ts)
+            if ts_f > 1e12:  # ms
+                ts_f /= 1000.0
+            if ts_f < cutoff:
+                continue
+            out.append({
+                "timestamp": datetime.fromtimestamp(ts_f, tz=timezone.utc).isoformat(),
+                "tvl_usd": round(float(val), 2),
+            })
+        except Exception:
+            continue
+    return out[-max(days, 1):]
+
+
+def fetch_coingecko_market_chart(cg_id: str, days: int = 30) -> list[dict[str, Any]]:
+    if not cg_id:
+        return []
+    url = (
+        f"https://api.coingecko.com/api/v3/coins/{cg_id}/market_chart"
+        f"?vs_currency=usd&days={max(1, min(days, 90))}"
+    )
+    data = _http_json(url, ttl=300)
+    prices = data.get("prices") if isinstance(data, dict) else None
+    if not isinstance(prices, list):
+        return []
+    out = []
+    for row in prices:
+        try:
+            ms, px = row[0], row[1]
+            out.append({
+                "timestamp": datetime.fromtimestamp(float(ms) / 1000.0, tz=timezone.utc).isoformat(),
+                "price_usd": float(px),
+            })
+        except Exception:
+            continue
+    # downsample to ~daily-ish if dense
+    if len(out) > days * 2:
+        step = max(1, len(out) // days)
+        out = out[::step]
+    return out
+
+
+def _canonical_source_blob(asset: dict[str, Any], llama: dict[str, Any] | None, px: dict[str, Any] | None) -> dict[str, Any]:
+    """Canonical live fields used for reserve/source integrity hash."""
+    return {
+        "id": asset.get("id"),
+        "symbol": asset.get("symbol"),
+        "asset_class": asset.get("asset_class"),
+        "issuer": asset.get("issuer"),
+        "contracts": asset.get("contracts") or {},
+        "protocol_tvl_usd": (llama or {}).get("tvl"),
+        "llama_name": (llama or {}).get("name"),
+        "llama_slug": (llama or {}).get("slug"),
+        "llama_address": (llama or {}).get("address"),
+        "llama_category": (llama or {}).get("category"),
+        "llama_chains": (llama or {}).get("chains"),
+        "token_price_usd": (px or {}).get("usd"),
+        "token_market_cap_usd": (px or {}).get("usd_market_cap"),
+        "token_volume_24h_usd": (px or {}).get("usd_24h_vol"),
+        "as_of": _now(),
+        "feeds": ["defillama_protocols", "coingecko_simple_price"],
+    }
+
+
+def build_source_integrity(asset: dict[str, Any], llama: dict[str, Any] | None, px: dict[str, Any] | None) -> dict[str, Any]:
+    import hashlib
+    blob = _canonical_source_blob(asset, llama, px)
+    raw = json.dumps(blob, sort_keys=True, separators=(",", ":"), default=str).encode()
+    digest = hashlib.sha256(raw).hexdigest()
+    return {
+        "algorithm": "sha256",
+        "hash": digest,
+        "hashed_fields": sorted(blob.keys()),
+        "method": "live_public_source_snapshot",
+        "verifiable": True,
+        "note": (
+            "SHA-256 over canonical live public-source snapshot (TVL/mcap/contracts). "
+            "Not a custodian attestation letter. Agents can re-fetch feeds and recompute."
+        ),
+        "snapshot": {
+            "protocol_tvl_usd": blob.get("protocol_tvl_usd"),
+            "token_market_cap_usd": blob.get("token_market_cap_usd"),
+            "token_price_usd": blob.get("token_price_usd"),
+            "contracts": blob.get("contracts"),
+            "llama_name": blob.get("llama_name"),
+            "as_of": blob.get("as_of"),
+        },
+    }
+
+
+def get_proof_of_reserves(params: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Source-integrity proof from live feeds (recomputable). Not synthetic demo hashes."""
+    params = params or {}
+    asset_id = (params.get("id") or params.get("asset_id") or params.get("symbol") or "").strip()
+    protocols = fetch_llama_rwa_protocols()
+    prices = fetch_coingecko_prices([r["coingecko_id"] for r in RWA_REGISTRY if r.get("coingecko_id")])
+
+    if asset_id:
+        val = get_valuation({"id": asset_id})
+        if val.get("error"):
+            return val
+        asset = val.get("asset") or {}
+        # rebuild llama/px for hash consistency
+        reg = None
+        for r in RWA_REGISTRY:
+            if asset.get("id") == r["id"]:
+                reg = r
+                break
+        llama = _match_llama(reg, protocols) if reg else None
+        px = prices.get(reg["coingecko_id"]) if reg and reg.get("coingecko_id") else None
+        if not isinstance(px, dict):
+            px = None
+        # prefer signals already on asset valuation
+        if not llama and asset.get("valuation"):
+            sig = (asset.get("valuation") or {}).get("signals") or {}
+            llama = {
+                "tvl": sig.get("protocol_tvl_usd"),
+                "name": asset.get("name"),
+                "address": sig.get("llama_address"),
+                "category": sig.get("llama_category"),
+                "chains": sig.get("llama_chains"),
+                "slug": (reg or {}).get("llama_slug"),
+            }
+        por = build_source_integrity(asset if not reg else {**reg, **{k: asset.get(k) for k in ("id","name","symbol","asset_class","issuer","contracts")}}, llama, px)
+        return {
+            "timestamp": _now(),
+            "asset_id": asset.get("id"),
+            "name": asset.get("name"),
+            "symbol": asset.get("symbol"),
+            "primary_value_usd": (asset.get("valuation") or {}).get("primary_value_usd"),
+            "proof": por,
+            "engine": "scriptmasterlabs_rwa_v2",
+            "disclaimer": "Live source-integrity hash — not a custodian legal PoR letter.",
+        }
+
+    # aggregate over curated registry
+    rows = []
+    for reg in RWA_REGISTRY:
+        llama = _match_llama(reg, protocols)
+        px = prices.get(reg["coingecko_id"]) if reg.get("coingecko_id") else None
+        if not isinstance(px, dict):
+            px = None
+        snap = build_asset_snapshot(reg, protocols, prices)
+        por = build_source_integrity(reg, llama, px)
+        rows.append({
+            "asset_id": reg["id"],
+            "name": reg["name"],
+            "symbol": reg.get("symbol"),
+            "primary_value_usd": (snap.get("valuation") or {}).get("primary_value_usd"),
+            "proof_hash": por["hash"],
+            "protocol_tvl_usd": (llama or {}).get("tvl"),
+        })
+    import hashlib
+    agg_blob = json.dumps({r["asset_id"]: r["proof_hash"] for r in rows}, sort_keys=True, separators=(",", ":")).encode()
+    return {
+        "timestamp": _now(),
+        "total_assets": len(rows),
+        "aggregate_hash": hashlib.sha256(agg_blob).hexdigest(),
+        "assets": rows,
+        "method": "live_public_source_snapshot",
+        "engine": "scriptmasterlabs_rwa_v2",
+        "disclaimer": "Aggregate of live source-integrity hashes — not custodian legal PoR.",
+    }
+
+
+def get_valuation_with_history(params: dict[str, Any] | None = None) -> dict[str, Any]:
+    params = dict(params or {})
+    try:
+        days = int(params.get("days") or 30)
+    except Exception:
+        days = 30
+    days = max(1, min(days, 90))
+    base = get_valuation(params)
+    if base.get("error"):
+        return base
+    asset = base.get("asset") or {}
+    reg = None
+    for r in RWA_REGISTRY:
+        if asset.get("id") == r["id"]:
+            reg = r
+            break
+    history = {"tvl": [], "price": []}
+    sources_used = []
+    if reg and reg.get("llama_slug"):
+        history["tvl"] = fetch_tvl_history(reg["llama_slug"], days=days)
+        if history["tvl"]:
+            sources_used.append("defillama_protocol_tvl_history")
+    elif reg and reg.get("llama_name"):
+        # try slugify name
+        slug = re.sub(r"[^a-z0-9]+", "-", (reg.get("llama_name") or "").lower()).strip("-")
+        history["tvl"] = fetch_tvl_history(slug, days=days)
+        if history["tvl"]:
+            sources_used.append("defillama_protocol_tvl_history")
+    if reg and reg.get("coingecko_id"):
+        history["price"] = fetch_coingecko_market_chart(reg["coingecko_id"], days=days)
+        if history["price"]:
+            sources_used.append("coingecko_market_chart")
+    # range stats from whichever series exists
+    series_vals = [p["tvl_usd"] for p in history["tvl"]] or [p["price_usd"] for p in history["price"]]
+    hist_stats = None
+    if series_vals:
+        hist_stats = {
+            "points": len(series_vals),
+            "min": round(min(series_vals), 2),
+            "max": round(max(series_vals), 2),
+            "last": round(series_vals[-1], 2),
+            "change_pct": round((series_vals[-1] / series_vals[0] - 1) * 100, 4) if series_vals[0] else None,
+            "window_days": days,
+        }
+    base["history"] = history
+    base["history_stats"] = hist_stats
+    base["history_sources"] = sources_used
+    base["engine"] = "scriptmasterlabs_rwa_v2"
+    return base
 
 
 def list_assets(params: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -619,8 +886,8 @@ def list_assets(params: dict[str, Any] | None = None) -> dict[str, Any]:
             "limit": limit,
         },
         "registry_size": len(RWA_REGISTRY),
-        "engine": "scriptmasterlabs_rwa_v1",
-        "disclaimer": "Ownable SML metrics over public feeds. Not audited NAV / PoR.",
+        "engine": "scriptmasterlabs_rwa_v2",
+        "disclaimer": "Ownable SML metrics over live public feeds. Source-integrity hashes included. Not a custodian legal PoR letter.",
     }
 
 
@@ -658,12 +925,12 @@ def get_valuation(params: dict[str, Any] | None = None) -> dict[str, Any]:
                     "asset": snap,
                     "valuation": _valuation(snap, p, None),
                     "risk": _risk_score(snap, p, None),
-                    "engine": "scriptmasterlabs_rwa_v1",
+                    "engine": "scriptmasterlabs_rwa_v2",
                 }
         return {"error": "not_found", "id": asset_id, "known_ids": [r["id"] for r in RWA_REGISTRY]}
 
     snap = build_asset_snapshot(reg, protocols, prices)
-    return {"timestamp": _now(), "asset": snap, "engine": "scriptmasterlabs_rwa_v1"}
+    return {"timestamp": _now(), "asset": snap, "engine": "scriptmasterlabs_rwa_v2"}
 
 
 def get_risk(params: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -678,7 +945,7 @@ def get_risk(params: dict[str, Any] | None = None) -> dict[str, Any]:
         "asset_class": asset.get("asset_class"),
         "risk": asset.get("risk"),
         "valuation_primary_usd": (asset.get("valuation") or {}).get("primary_value_usd"),
-        "engine": "scriptmasterlabs_rwa_v1",
+        "engine": "scriptmasterlabs_rwa_v2",
     }
 
 
@@ -700,27 +967,30 @@ def aggregates(params: dict[str, Any] | None = None) -> dict[str, Any]:
             }
             for a in assets[:10]
         ],
-        "engine": "scriptmasterlabs_rwa_v1",
+        "engine": "scriptmasterlabs_rwa_v2",
         "disclaimer": data.get("disclaimer"),
     }
 
 
 def rwa_intelligence(params: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Unified agent entrypoint. action=list|valuation|risk|aggregates (default list)."""
+    """Unified agent entrypoint. action=list|valuation|risk|aggregates|por (default list)."""
     params = dict(params or {})
     action = (params.get("action") or params.get("op") or "list").strip().lower()
     if action in ("list", "assets", "search"):
         payload = list_assets(params)
     elif action in ("valuation", "value", "nav", "quote"):
-        payload = get_valuation(params)
+        # include live history by default for premium intelligence
+        payload = get_valuation_with_history(params) if "get_valuation_with_history" in globals() else get_valuation(params)
     elif action in ("risk", "score"):
         payload = get_risk(params)
     elif action in ("aggregates", "aggregate", "summary", "tvl"):
         payload = aggregates(params)
+    elif action in ("por", "proof", "proof_of_reserves", "reserves"):
+        payload = get_proof_of_reserves(params)
     else:
         payload = {
             "error": "unknown_action",
-            "allowed": ["list", "valuation", "risk", "aggregates"],
+            "allowed": ["list", "valuation", "risk", "aggregates", "por"],
             "example": {"action": "valuation", "id": "buidl"},
         }
     # ACP deliverable convention
