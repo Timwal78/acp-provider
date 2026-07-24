@@ -81,7 +81,8 @@ _PRICES_USD = {
     "compliance_anomaly_report":        "2.00",
     "compliance_bank_audit":            "2.00",
     "compliance_regulator_query":       "1.00",
-    # --- Federal contracting (USAspending.gov / SAM.gov moat) ---
+    # --- Federal contracting (SAM.gov + USAspending) ---
+    "sam_opportunities":                "0.10",
     "federal_contract_opportunities":   "0.50",
     "federal_award_history":            "0.35",
     "sdvosb_setaside_feed":             "0.75",
@@ -118,6 +119,34 @@ _KNOWN_QUERY_PARAMS = {
     "crypto_price": {"ids": {"type": "string", "description": "CoinGecko ids csv", "example": "bitcoin,ethereum"}, "vs": {"type": "string", "example": "usd", "default": "usd"}},
     "fx_rate": {"base": {"type": "string", "example": "USD", "default": "USD"}, "symbols": {"type": "string", "example": "EUR,GBP"}},
     "gas_tracker": {"chain": {"type": "string", "example": "ethereum"}},
+    "sam_opportunities": {
+        "keyword": {"type": "string", "example": "IT services"},
+        "naics": {"type": "string", "example": "541512"},
+        "ptype": {"type": "string", "example": "o", "default": "o"},
+        "agency": {"type": "string", "example": "DEPARTMENT OF DEFENSE"},
+        "limit": {"type": "integer", "example": 10, "default": 10},
+        "days": {"type": "integer", "example": 30, "default": 30},
+        "set_aside": {"type": "string", "example": "SDVOSBC"},
+    },
+    "federal_contract_opportunities": {
+        "source": {"type": "string", "example": "awards", "default": "awards"},
+        "keyword": {"type": "string", "example": "cyber"},
+        "naics": {"type": "string", "example": "541512"},
+        "agency": {"type": "string", "example": "DEPARTMENT OF VETERANS AFFAIRS"},
+        "top_n": {"type": "integer", "example": 10, "default": 20},
+        "limit": {"type": "integer", "example": 10},
+    },
+    "sam_entity_verification": {
+        "entity_name": {"type": "string", "example": "Script Master Labs"},
+        "uei": {"type": "string", "example": "G24VZA4RLMK3"},
+        "cage": {"type": "string", "example": "21U51"},
+    },
+    "entity_compliance_check": {
+        "uei": {"type": "string", "example": "G24VZA4RLMK3"},
+        "cage": {"type": "string", "example": "21U51"},
+        "entity_name": {"type": "string", "example": "Script Master Labs"},
+    },
+
     "rwa_intelligence": {"action": {"type": "string", "example": "list"}, "id": {"type": "string", "example": "buidl"}, "constraint": {"type": "string", "example": "class=tokenized_treasuries,risk<40"}},
     "rwa_assets": {"asset_class": {"type": "string", "example": "tokenized_treasuries"}, "limit": {"type": "integer", "example": 10, "default": 25}},
     "rwa_valuation": {"id": {"type": "string", "example": "ondo"}},

@@ -460,14 +460,172 @@ def api_stablecoin_flow_tracker(params):
 
 # ============================================================
 # FEDERAL / CONTRACTING APIs (SAM.gov moat — UEI G24VZA4RLMK3)
-# Data source: USAspending.gov API (free, no key required)
+# Live solicitations: SAM.gov Opportunities API (SAM_API_KEY)
+# Awards / spend: USAspending.gov (no key)
 # ============================================================
 
-def api_federal_contract_opportunities(params):
-    """Active federal contract awards — who's getting what, for how much.
-    Uses USAspending.gov spending_by_award endpoint.
-    Req: { top_n?: int, agency?: string, naics?: string, min_amount?: float }
+def _sam_api_key():
+    return (os.environ.get("SAM_API_KEY") or os.environ.get("SAM_KEY") or "").strip()
+
+
+def _sam_date_mmddyyyy(days_ago=30, days_ahead=0):
+    from datetime import timedelta
+    now = datetime.now(timezone.utc)
+    d = now + timedelta(days=days_ahead) if days_ahead else now - timedelta(days=days_ago)
+    if days_ahead == 0 and days_ago == 0:
+        d = now
+    return d.strftime("%m/%d/%Y")
+
+
+def _sam_fmt_range(posted_from=None, posted_to=None, default_days=30):
+    """Return (postedFrom, postedTo) in MM/dd/yyyy for SAM.gov."""
+    from datetime import timedelta
+    now = datetime.now(timezone.utc)
+    if not posted_to:
+        posted_to = now.strftime("%m/%d/%Y")
+    if not posted_from:
+        posted_from = (now - timedelta(days=default_days)).strftime("%m/%d/%Y")
+    return posted_from, posted_to
+
+
+def _sam_opportunities_raw(params):
+    """Call SAM.gov opportunities v2. Returns dict or error dict."""
+    key = _sam_api_key()
+    if not key:
+        return {"error": "sam_api_key_missing", "message": "Set SAM_API_KEY on this service"}
+    limit = min(int(params.get("limit") or params.get("top_n") or 20), 100)
+    posted_from, posted_to = _sam_fmt_range(
+        params.get("posted_from") or params.get("postedFrom"),
+        params.get("posted_to") or params.get("postedTo"),
+        default_days=int(params.get("days") or 30),
+    )
+    q = {
+        "api_key": key,
+        "limit": str(limit),
+        "offset": str(int(params.get("offset") or 0)),
+        "postedFrom": posted_from,
+        "postedTo": posted_to,
+    }
+    # ptype: o=solicitation (default), k=combined, p=presolicitation, r=sources sought, etc.
+    ptype = params.get("ptype") or params.get("type") or "o"
+    if ptype:
+        q["ptype"] = ptype
+    keyword = params.get("keyword") or params.get("title") or params.get("q") or ""
+    if keyword:
+        q["title"] = keyword
+    naics = params.get("naics") or params.get("ncode") or ""
+    if naics:
+        q["ncode"] = str(naics)
+    solnum = params.get("solicitation_number") or params.get("solnum") or ""
+    if solnum:
+        q["solnum"] = solnum
+    setaside = params.get("set_aside") or params.get("typeOfSetAside") or ""
+    if setaside:
+        q["typeOfSetAside"] = setaside
+    organization = params.get("agency") or params.get("organizationName") or ""
+    if organization:
+        q["organizationName"] = organization
+
+    from urllib.parse import urlencode
+    url = "https://api.sam.gov/opportunities/v2/search?" + urlencode(q)
+    data = fetch_url(url, method="GET")
+    if isinstance(data, dict) and data.get("error"):
+        return data
+    if not isinstance(data, dict):
+        return {"error": "sam_bad_response", "raw_type": str(type(data))}
+    rows = data.get("opportunitiesData") or []
+    opps = []
+    for o in rows:
+        opps.append({
+            "notice_id": o.get("noticeId"),
+            "title": o.get("title"),
+            "solicitation_number": o.get("solicitationNumber"),
+            "agency_path": o.get("fullParentPathName"),
+            "posted_date": o.get("postedDate"),
+            "type": o.get("type"),
+            "base_type": o.get("baseType"),
+            "set_aside": o.get("typeOfSetAsideDescription") or o.get("typeOfSetAside"),
+            "response_deadline": o.get("responseDeadLine"),
+            "naics": o.get("naicsCode") or ((o.get("naicsCodes") or [None])[0]),
+            "naics_codes": o.get("naicsCodes"),
+            "place_of_performance": o.get("placeOfPerformance"),
+            "ui_link": o.get("uiLink"),
+            "active": o.get("active"),
+        })
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "source": "SAM.gov opportunities API v2",
+        "sam_key_configured": True,
+        "total_records": data.get("totalRecords"),
+        "returned": len(opps),
+        "filters": {
+            "keyword": keyword or None,
+            "naics": naics or None,
+            "ptype": ptype,
+            "posted_from": posted_from,
+            "posted_to": posted_to,
+            "agency": organization or None,
+            "set_aside": setaside or None,
+        },
+        "opportunities": opps,
+        "operator_sdvosb": {"uei": "G24VZA4RLMK3", "cage": "21U51"},
+    }
+
+
+def _sam_entity_raw(params):
+    """SAM entity-information v3 lookup."""
+    key = _sam_api_key()
+    if not key:
+        return {"error": "sam_api_key_missing", "message": "Set SAM_API_KEY on this service"}
+    uei = (params.get("uei") or params.get("ueiSAM") or "").strip()
+    cage = (params.get("cage") or params.get("cageCode") or "").strip()
+    name = (params.get("entity_name") or params.get("legalBusinessName") or params.get("name") or "").strip()
+    if not uei and not cage and not name:
+        return {"error": "uei_or_cage_or_entity_name_required"}
+    from urllib.parse import urlencode
+    q = {"api_key": key}
+    if uei:
+        q["ueiSAM"] = uei
+    if cage:
+        q["cageCode"] = cage
+    if name:
+        q["legalBusinessName"] = name
+    url = "https://api.sam.gov/entity-information/v3/entities?" + urlencode(q)
+    data = fetch_url(url, method="GET")
+    if isinstance(data, dict) and data.get("error"):
+        return data
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "source": "SAM.gov entity-information v3",
+        "sam_key_configured": True,
+        "total_records": data.get("totalRecords") if isinstance(data, dict) else None,
+        "entities": (data.get("entityData") if isinstance(data, dict) else data),
+        "query": {"uei": uei or None, "cage": cage or None, "entity_name": name or None},
+        "operator_sdvosb": {"uei": "G24VZA4RLMK3", "cage": "21U51"},
+    }
+
+
+def api_sam_opportunities(params):
+    """Live SAM.gov solicitations/opportunities (requires SAM_API_KEY).
+    Req: { keyword?: str, naics?: str, ptype?: str, agency?: str, set_aside?: str,
+           posted_from?: MM/dd/yyyy, posted_to?: MM/dd/yyyy, limit?: int, days?: int }
     """
+    return _sam_opportunities_raw(params or {})
+
+
+def api_federal_contract_opportunities(params):
+    """Federal contract AWARDS (USAspending) — who won what.
+    For live solicitations use sam_opportunities (SAM.gov).
+    Optional params.source=sam to redirect to live SAM opportunities when key set.
+    Req: { top_n?: int, agency?: string, naics?: string, min_amount?: float, source?: awards|sam, keyword?: str }
+    """
+    params = params or {}
+    source = (params.get("source") or "awards").strip().lower()
+    if source in ("sam", "opportunities", "solicitation", "solicitations"):
+        p = dict(params)
+        if "top_n" in p and "limit" not in p:
+            p["limit"] = p.get("top_n")
+        return _sam_opportunities_raw(p)
     top_n = min(int(params.get("top_n", 20)), 100)
     agency = params.get("agency", "")
     min_amount = float(params.get("min_amount", 0))
@@ -625,15 +783,33 @@ def api_sdvosb_setaside_feed(params):
 
 
 def api_sam_entity_verification(params):
-    """Verify a federal contractor entity via USAspending.gov recipient search.
-    Returns entity name, UEI, DUNS, and award history.
-    Req: { entity_name: string }
+    """Verify a federal contractor entity.
+    Prefers live SAM.gov entity-information when SAM_API_KEY is set.
+    Falls back to USAspending recipient autocomplete.
+    Req: { entity_name?: string, uei?: string, cage?: string }
     """
-    entity_name = params.get("entity_name", "")
-    if not entity_name:
-        return {"error": "entity_name is required"}
+    params = params or {}
+    uei = (params.get("uei") or "").strip()
+    cage = (params.get("cage") or "").strip()
+    entity_name = (params.get("entity_name") or params.get("name") or "").strip()
 
-    search_payload = {"search_text": entity_name, "limit": 5}
+    if _sam_api_key() and (uei or cage or entity_name):
+        sam = _sam_entity_raw({"uei": uei, "cage": cage, "entity_name": entity_name})
+        if not (isinstance(sam, dict) and sam.get("error") == "sam_api_key_missing"):
+            # If SAM returned data or a real error, surface it
+            if isinstance(sam, dict) and not sam.get("error"):
+                return sam
+            if isinstance(sam, dict) and sam.get("error") and sam.get("error") != "sam_api_key_missing":
+                # fall through to USAspending on hard SAM errors only if name search possible
+                if not entity_name:
+                    return sam
+
+    if not entity_name and not uei and not cage:
+        return {"error": "entity_name or uei or cage is required"}
+
+    # USAspending fallback (name-oriented)
+    q = entity_name or uei or cage
+    search_payload = {"search_text": q, "limit": 5}
     search_data = fetch_url("https://api.usaspending.gov/api/v2/autocomplete/recipient/",
                             method="POST", data=search_payload)
     if isinstance(search_data, dict) and "error" in search_data:
@@ -650,7 +826,9 @@ def api_sam_entity_verification(params):
 
     return {
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "entity_searched": entity_name,
+        "source": "USAspending.gov recipient autocomplete (SAM fallback)",
+        "sam_key_configured": bool(_sam_api_key()),
+        "entity_searched": q,
         "entities_found": len(entities),
         "entities": entities,
     }
@@ -1719,19 +1897,53 @@ def api_ai_fact_check(params):
     return results
 
 def api_entity_compliance_check(params):
-    """SAM.gov registration status and exclusion flag."""
-    uei = params.get("uei", "")
-    cage = params.get("cage", "")
+    """SAM.gov registration status and exclusion-oriented entity check.
+    Prefers live SAM entity-information when SAM_API_KEY is set.
+    Falls back to USAspending recipient endpoints.
+    """
+    params = params or {}
+    uei = (params.get("uei") or "").strip()
+    cage = (params.get("cage") or "").strip()
+    name = (params.get("entity_name") or params.get("name") or "").strip()
+    if not uei and not cage and not name:
+        return {"error": "Provide uei, cage, or entity_name"}
+
+    if _sam_api_key():
+        sam = _sam_entity_raw({"uei": uei, "cage": cage, "entity_name": name})
+        if isinstance(sam, dict) and not sam.get("error"):
+            entities = sam.get("entities") or []
+            # normalize a compact compliance view
+            first = entities[0] if isinstance(entities, list) and entities else {}
+            reg = {}
+            if isinstance(first, dict):
+                reg = first.get("entityRegistration") or first.get("entityregistration") or first
+            return {
+                "timestamp": sam.get("timestamp"),
+                "source": "SAM.gov entity-information v3",
+                "sam_key_configured": True,
+                "query": {"uei": uei or None, "cage": cage or None, "entity_name": name or None},
+                "total_records": sam.get("total_records"),
+                "registration_status": "FOUND" if (sam.get("total_records") or 0) else "NOT_FOUND",
+                "entity_preview": first if isinstance(first, dict) else first,
+                "entities": entities,
+                "operator_sdvosb": {"uei": "G24VZA4RLMK3", "cage": "21U51"},
+                "note": "Live SAM entity lookup. Review entityRegistration fields for status/exclusions.",
+            }
+        if isinstance(sam, dict) and sam.get("error") and not (uei or cage):
+            pass  # fall back
+        elif isinstance(sam, dict) and sam.get("error") and sam.get("error") != "sam_api_key_missing":
+            # still try USAspending if we have uei/cage
+            pass
+
     if not uei and not cage:
-        return {"error": "Provide either uei or cage parameter"}
-    # Use USAspending.gov recipient endpoint
+        return {"error": "USAspending fallback needs uei or cage (or set SAM_API_KEY for name lookup)"}
     if uei:
         url = f"https://api.usaspending.gov/api/v2/recipient/{uei}/"
     else:
         url = f"https://api.usaspending.gov/api/v2/recipient/cage/{cage}/"
     data = fetch_url(url, method="POST", data={})
-    if not data:
-        return {"error": f"Could not find entity with {'UEI ' + uei if uei else 'CAGE ' + cage}"}
+    if not data or (isinstance(data, dict) and data.get("error")):
+        return {"error": f"Could not find entity with {'UEI ' + uei if uei else 'CAGE ' + cage}", "detail": data}
     return {
         "uei": data.get("uei", uei),
         "cage": data.get("cage", cage),
@@ -1743,6 +1955,8 @@ def api_entity_compliance_check(params):
         "set_aside_types": data.get("set_aside_types", []),
         "naics_codes": data.get("naics_codes", []),
         "exclusion_flag": data.get("exclusion_flag", False),
+        "source": "USAspending.gov recipient data (SAM fallback)",
+        "sam_key_configured": bool(_sam_api_key()),
         "note": "Compliance check via USAspending.gov recipient data",
     }
 
@@ -2476,6 +2690,7 @@ ENDPOINTS = {
     "defi_yield_rates": api_defi_yield_rates,
     "defi_tvl_ranking": api_defi_tvl_ranking,
 # --- Federal/Contracting APIs (SAM.gov moat) ---
+    "sam_opportunities": api_sam_opportunities,
     "federal_contract_opportunities": api_federal_contract_opportunities,
     "federal_award_history": api_federal_award_history,
     "sdvosb_setaside_feed": api_sdvosb_setaside_feed,
@@ -2674,6 +2889,7 @@ def lookup_price(offering_name):
         "druckenmiller_macro_regime_analysis": 0.25,
         "sdvosb_setaside_feed": 0.25,
         "entity_compliance_check": 0.15,
+        "sam_opportunities": 0.10,
         "federal_contract_opportunities": 0.15,
         "federal_award_history": 0.10,
         "sam_entity_verification": 0.10,

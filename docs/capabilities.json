@@ -31,6 +31,12 @@
   ],
   "offerings": [
     {
+      "name": "sam_opportunities",
+      "description": "Live SAM.gov solicitations/opportunities (requires SAM_API_KEY). Req: { keyword?, naics?, ptype?, agency?, set_aside?, limit?, days? }",
+      "price_usd": 0.1,
+      "source": "SAM.gov"
+    },
+    {
       "name": "fec_campaign_finance",
       "description": "FEC API \u2014 FEC campaign finance data. FEC candidates committees contribution totals by election cycle. Best FEC campaign finance API on ACP. Req: { name?: string, committee?: string, cycle?: string }",
       "price": 0.01,
