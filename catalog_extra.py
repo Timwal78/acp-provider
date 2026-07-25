@@ -427,6 +427,230 @@ def api_dexscreener_search(params: dict | None = None) -> dict:
     return _ok({"timestamp": _now(), "query": q, "count": len(out), "pairs": out, "source": "dexscreener_search"})
 
 
+
+def api_crypto_news(params: dict | None = None) -> dict:
+    """Crypto news headlines (CryptoCompare free). Params: { limit?: int, categories?: string }"""
+    p = params or {}
+    try:
+        limit = max(1, min(int(p.get("limit") or 20), 50))
+    except Exception:
+        limit = 20
+    cats = (p.get("categories") or p.get("category") or "").strip()
+    url = f"https://min-api.cryptocompare.com/data/v2/news/?lang=EN"
+    if cats:
+        from urllib.parse import quote
+        url += f"&categories={quote(cats)}"
+    data = _get(url)
+    items = (data or {}).get("Data") if isinstance(data, dict) else []
+    out = []
+    for it in (items or [])[:limit]:
+        out.append({
+            "id": it.get("id"),
+            "title": it.get("title"),
+            "source": it.get("source"),
+            "url": it.get("url") or it.get("guid"),
+            "published_on": it.get("published_on"),
+            "categories": it.get("categories"),
+            "body": (it.get("body") or "")[:400],
+        })
+    return _ok({"timestamp": _now(), "count": len(out), "news": out, "source": "cryptocompare_news"})
+
+
+def api_token_details(params: dict | None = None) -> dict:
+    """CoinGecko token details. Params: { id?: string } e.g. bitcoin, ethereum, solana"""
+    p = params or {}
+    cid = (p.get("id") or p.get("coin") or p.get("token") or "bitcoin").strip().lower()
+    from urllib.parse import quote
+    url = (
+        f"https://api.coingecko.com/api/v3/coins/{quote(cid)}"
+        "?localization=false&tickers=false&market_data=true&community_data=false&developer_data=false"
+    )
+    data = _get(url)
+    if not isinstance(data, dict) or data.get("error"):
+        return _ok({"timestamp": _now(), "error": (data or {}).get("error") if isinstance(data, dict) else "fetch_failed", "id": cid})
+    md = data.get("market_data") or {}
+    out = {
+        "id": data.get("id"),
+        "symbol": data.get("symbol"),
+        "name": data.get("name"),
+        "categories": data.get("categories"),
+        "market_cap_rank": data.get("market_cap_rank"),
+        "price_usd": (md.get("current_price") or {}).get("usd"),
+        "market_cap_usd": (md.get("market_cap") or {}).get("usd"),
+        "total_volume_usd": (md.get("total_volume") or {}).get("usd"),
+        "ath_usd": (md.get("ath") or {}).get("usd"),
+        "atl_usd": (md.get("atl") or {}).get("usd"),
+        "price_change_24h_pct": md.get("price_change_percentage_24h"),
+        "price_change_7d_pct": md.get("price_change_percentage_7d"),
+        "circulating_supply": md.get("circulating_supply"),
+        "homepage": (data.get("links") or {}).get("homepage"),
+        "source": "coingecko_coins",
+    }
+    return _ok({"timestamp": _now(), "token": out})
+
+
+def api_trending_altcoins(params: dict | None = None) -> dict:
+    """CoinGecko trending search (coins + nfts + categories)."""
+    data = _get("https://api.coingecko.com/api/v3/search/trending")
+    coins = []
+    for row in ((data or {}).get("coins") or []) if isinstance(data, dict) else []:
+        item = (row or {}).get("item") or {}
+        coins.append({
+            "id": item.get("id"),
+            "name": item.get("name"),
+            "symbol": item.get("symbol"),
+            "market_cap_rank": item.get("market_cap_rank"),
+            "score": item.get("score"),
+            "price_btc": item.get("price_btc"),
+        })
+    return _ok({
+        "timestamp": _now(),
+        "count": len(coins),
+        "trending": coins,
+        "nfts": (data or {}).get("nfts") if isinstance(data, dict) else [],
+        "categories": (data or {}).get("categories") if isinstance(data, dict) else [],
+        "source": "coingecko_search_trending",
+    })
+
+
+def api_funding_rates(params: dict | None = None) -> dict:
+    """Perp funding rates — Binance USDT-M premium index. Params: { symbol?: string } default top set"""
+    p = params or {}
+    symbol = (p.get("symbol") or "").upper().replace("-", "")
+    if symbol:
+        if not symbol.endswith("USDT"):
+            symbol = symbol + "USDT"
+        data = _get(f"https://fapi.binance.com/fapi/v1/premiumIndex?symbol={symbol}")
+        rows = [data] if isinstance(data, dict) and not data.get("error") else []
+    else:
+        data = _get("https://fapi.binance.com/fapi/v1/premiumIndex")
+        rows = data if isinstance(data, list) else []
+        # top liquid names first
+        prefer = {"BTCUSDT","ETHUSDT","SOLUSDT","BNBUSDT","XRPUSDT","DOGEUSDT","ADAUSDT","AVAXUSDT","LINKUSDT","SUIUSDT"}
+        rows = sorted(rows, key=lambda r: (0 if (r or {}).get("symbol") in prefer else 1, (r or {}).get("symbol") or ""))
+        rows = rows[:40]
+    out = []
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        out.append({
+            "symbol": r.get("symbol"),
+            "markPrice": r.get("markPrice"),
+            "indexPrice": r.get("indexPrice"),
+            "lastFundingRate": r.get("lastFundingRate"),
+            "nextFundingTime": r.get("nextFundingTime"),
+            "interestRate": r.get("interestRate"),
+        })
+    return _ok({"timestamp": _now(), "count": len(out), "funding": out, "source": "binance_usdm_premium_index"})
+
+
+def api_defi_analytics(params: dict | None = None) -> dict:
+    """DefiLlama protocol overview / TVL movers. Params: { limit?: int }"""
+    p = params or {}
+    try:
+        limit = max(1, min(int(p.get("limit") or 25), 100))
+    except Exception:
+        limit = 25
+    data = _get("https://api.llama.fi/protocols")
+    rows = data if isinstance(data, list) else []
+    rows = sorted(rows, key=lambda x: -(x.get("tvl") or 0))[:limit]
+    out = []
+    for r in rows:
+        out.append({
+            "name": r.get("name"),
+            "symbol": r.get("symbol"),
+            "category": r.get("category"),
+            "chains": r.get("chains"),
+            "tvl": r.get("tvl"),
+            "change_1h": r.get("change_1h"),
+            "change_1d": r.get("change_1d"),
+            "change_7d": r.get("change_7d"),
+            "mcap": r.get("mcap"),
+            "url": r.get("url"),
+        })
+    return _ok({"timestamp": _now(), "count": len(out), "protocols": out, "source": "defillama_protocols"})
+
+
+def api_stablecoin_watch(params: dict | None = None) -> dict:
+    """Stablecoin market caps + dominance (DefiLlama)."""
+    data = _get("https://stablecoins.llama.fi/stablecoins?includePrices=true")
+    pegged = (data or {}).get("peggedAssets") if isinstance(data, dict) else []
+    out = []
+    for r in (pegged or [])[:40]:
+        circ = (r.get("circulating") or {})
+        out.append({
+            "name": r.get("name"),
+            "symbol": r.get("symbol"),
+            "pegType": r.get("pegType"),
+            "circulating_usd": circ.get("peggedUSD") if isinstance(circ, dict) else circ,
+            "price": r.get("price"),
+            "chains": list((r.get("chainCirculating") or {}).keys())[:12],
+        })
+    out = sorted(out, key=lambda x: -(x.get("circulating_usd") or 0))
+    return _ok({"timestamp": _now(), "count": len(out), "stablecoins": out, "source": "defillama_stablecoins"})
+
+
+def api_web_fetch(params: dict | None = None) -> dict:
+    """Fetch a public HTTP(S) URL and return truncated text/json. Params: { url: string }"""
+    p = params or {}
+    url = (p.get("url") or p.get("uri") or "").strip()
+    if not url.startswith("http://") and not url.startswith("https://"):
+        return _ok({"timestamp": _now(), "error": "url_required_https", "hint": "Pass url=https://..."})
+    # block obvious internal targets
+    low = url.lower()
+    if any(x in low for x in ["localhost", "127.0.0.1", "0.0.0.0", "169.254.", "metadata.google"]):
+        return _ok({"timestamp": _now(), "error": "url_blocked"})
+    req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "text/html,application/json,*/*"})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            raw = r.read(80_000)
+            ctype = r.headers.get("Content-Type", "")
+            status = getattr(r, "status", 200)
+    except Exception as e:
+        return _ok({"timestamp": _now(), "error": str(e)[:240], "url": url})
+    text = raw.decode("utf-8", "replace")
+    parsed = None
+    if "json" in ctype or text[:1] in "[{":
+        try:
+            parsed = json.loads(text)
+        except Exception:
+            parsed = None
+    return _ok({
+        "timestamp": _now(),
+        "url": url,
+        "status": status,
+        "content_type": ctype,
+        "bytes": len(raw),
+        "json": parsed if parsed is not None else None,
+        "text": None if parsed is not None else text[:12000],
+        "source": "sml_web_fetch",
+    })
+
+
+def api_token_top_holders_proxy(params: dict | None = None) -> dict:
+    """Token holder-ish snapshot via Eth plorer-free alternative: CoinGecko tickers top markets as liquidity proxy.
+    Params: { id?: string }
+    """
+    p = params or {}
+    cid = (p.get("id") or "ethereum").strip().lower()
+    from urllib.parse import quote
+    data = _get(f"https://api.coingecko.com/api/v3/coins/{quote(cid)}/tickers?include_exchange_logo=false&depth=true&order=volume_desc")
+    tickers = (data or {}).get("tickers") if isinstance(data, dict) else []
+    out = []
+    for t in (tickers or [])[:20]:
+        out.append({
+            "market": (t.get("market") or {}).get("name"),
+            "base": t.get("base"),
+            "target": t.get("target"),
+            "last": t.get("last"),
+            "volume": t.get("volume"),
+            "bid_ask_spread_pct": t.get("bid_ask_spread_percentage"),
+            "trust_score": t.get("trust_score"),
+            "trade_url": t.get("trade_url"),
+        })
+    return _ok({"timestamp": _now(), "id": cid, "count": len(out), "top_markets": out, "note": "liquidity/markets proxy (not on-chain holders)", "source": "coingecko_tickers"})
+
+
 # Registry consumed by provider.py
 EXTRA_ENDPOINTS = {
     "crypto_price": api_crypto_price,
@@ -454,6 +678,14 @@ EXTRA_ENDPOINTS = {
     "geckoterminal_trending": api_geckoterminal_trending,
     "dexscreener_boosts": api_dexscreener_boosts,
     "dexscreener_search": api_dexscreener_search,
+    "crypto_news": api_crypto_news,
+    "token_details": api_token_details,
+    "trending_altcoins": api_trending_altcoins,
+    "funding_rates": api_funding_rates,
+    "defi_analytics": api_defi_analytics,
+    "stablecoin_watch": api_stablecoin_watch,
+    "web_fetch": api_web_fetch,
+    "token_top_markets": api_token_top_holders_proxy,
 }
 
 EXTRA_PRICES_USD = {
@@ -482,6 +714,14 @@ EXTRA_PRICES_USD = {
     "geckoterminal_trending": "0.001",
     "dexscreener_boosts": "0.001",
     "dexscreener_search": "0.001",
+    "crypto_news": "0.001",
+    "token_details": "0.001",
+    "trending_altcoins": "0.001",
+    "funding_rates": "0.001",
+    "defi_analytics": "0.001",
+    "stablecoin_watch": "0.001",
+    "web_fetch": "0.001",
+    "token_top_markets": "0.001",
 }
 
 EXTRA_ACP_DEFAULTS = {k: 0.001 for k in EXTRA_ENDPOINTS}
