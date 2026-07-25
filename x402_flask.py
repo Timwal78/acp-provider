@@ -13,6 +13,8 @@ Dual-rail 402 body: every payment-required response advertises BOTH rails so tha
 import os
 import time
 import json
+import urllib.request
+import urllib.error
 import base64
 import secrets
 import logging
