@@ -35,6 +35,14 @@ CDP_API_KEY_SECRET = os.environ.get("CDP_API_KEY_SECRET", "")
 _CDP_CONFIGURED    = bool(CDP_API_KEY_ID and CDP_API_KEY_SECRET)
 
 NETWORK      = os.environ.get("X402_NETWORK", "base-sepolia").strip().lower()
+# Asset map key (base | base-sepolia). Challenge network must be CAIP-2 for x402scan.
+_NETWORK_KEY = "base" if NETWORK in ("base", "eip155:8453", "8453") else (
+    "base-sepolia" if "sepolia" in NETWORK else NETWORK
+)
+NETWORK_CAIP = {
+    "base": "eip155:8453",
+    "base-sepolia": "eip155:84532",
+}.get(_NETWORK_KEY, NETWORK if NETWORK.startswith("eip155:") else f"eip155:8453")
 # No hardcoded fallback wallet: this file was vendored from SqueezeOS, whose
 # default here is SqueezeOS's OWN receiving address. Defaulting to it in this
 # repo would silently route real USDC payments meant for acp-provider into a
@@ -116,11 +124,11 @@ def _usdc_atomic(price_usdc: str) -> str:
 
 
 def _payment_requirements(price_usdc: str, description: str, resource: str) -> dict:
-    cfg = USDC.get(NETWORK, USDC["base-sepolia"])
+    cfg = USDC.get(_NETWORK_KEY, USDC.get(NETWORK, USDC["base-sepolia"]))
     units = _usdc_atomic(price_usdc)
     return {
         "scheme": "exact",
-        "network": NETWORK,
+        "network": NETWORK_CAIP,
         # x402 v2 wants both: `amount` is the field the validator checks;
         # `maxAmountRequired` is kept because our own facilitator chain
         # settles off it. Confirmed against a live sibling deployment
@@ -269,11 +277,12 @@ def _402(requirements: dict, reason: str = "payment_required", query_params: dic
     # USDC/base accept only for scanner validity. RLUSD is a proprietary rail
     # and is NOT a valid x402 accept entry for x402scan — attach only as
     # optional second accept if configured, but keep primary exact/base clean.
-    accepts = [{
+    _amt = requirements.get("amount") or requirements.get("maxAmountRequired")
+    _base_accept = {
         "scheme": requirements.get("scheme", "exact"),
-        "network": requirements.get("network", NETWORK),
-        "amount": requirements.get("amount") or requirements.get("maxAmountRequired"),
-        "maxAmountRequired": requirements.get("maxAmountRequired"),
+        "network": requirements.get("network", NETWORK_CAIP),
+        "amount": _amt,
+        "maxAmountRequired": requirements.get("maxAmountRequired") or _amt,
         "asset": requirements.get("asset"),
         "payTo": requirements.get("payTo"),
         "maxTimeoutSeconds": requirements.get("maxTimeoutSeconds", MAX_TIMEOUT),
@@ -281,7 +290,13 @@ def _402(requirements: dict, reason: str = "payment_required", query_params: dic
         "description": requirements.get("description"),
         "mimeType": requirements.get("mimeType", "application/json"),
         "extra": requirements.get("extra") or {"name": "USD Coin", "version": "2"},
-    }]
+    }
+    # Dual network: CAIP-2 for x402scan registry + plain 'base' for x402-fetch clients.
+    accepts = [dict(_base_accept)]
+    plain = dict(_base_accept)
+    plain["network"] = "base"
+    if _base_accept.get("network") != "base":
+        accepts.append(plain)
     # Do NOT append xrpl-invoice into accepts for the challenge that scanners
     # validate — unknown schemes make the whole 402 "invalid". RLUSD stays on
     # /.well-known/x402 rails metadata only.
@@ -516,7 +531,7 @@ def _public_base_url():
 
 def _openapi_discovery_doc():
     """OpenAPI 3.1 + x-payment-info — same shape x402scan indexes on mcp-x402."""
-    cfg = USDC.get(NETWORK, USDC["base-sepolia"])
+    cfg = USDC.get(_NETWORK_KEY, USDC.get(NETWORK, USDC["base-sepolia"]))
     base = _public_base_url()
     paths = {}
     resources = []
