@@ -825,6 +825,8 @@ def _openapi_discovery_doc():
 
 
 def register_x402_discovery(app):
+    _apply_cors(app)
+
     def _x402_discovery():
         return jsonify(_openapi_discovery_doc())
 
