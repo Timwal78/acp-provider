@@ -124,26 +124,37 @@ USDC = {
 # No facilitator. Replay-protected in-process (resets on redeploy).
 _TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 _REDEEMED_TXS: set[str] = set()
-_BASE_RPCS = [
-    os.environ.get("BASE_RPC_URL") or "",
+_BASE_RPCS = [u for u in [
+    (os.environ.get("BASE_RPC_URL") or "").strip(),
     "https://mainnet.base.org",
-    "https://base.llamarpc.com",
     "https://base-rpc.publicnode.com",
-    "https://1rpc.io/base",
-]
+    "https://base.drpc.org",
+    "https://base.gateway.tenderly.co",
+    "https://base.meowrpc.com",
+    "https://base.llamarpc.com",
+] if u]
 
-def _rpc_call(method: str, params: list) -> dict | None:
+def _rpc_call(method: str, params: list):
+    """JSON-RPC with UA — bare python-urllib gets 403 from several public Base RPCs."""
     body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}).encode()
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "User-Agent": "scriptmasterlabs-x402-sovereign/1.0 (+https://www.scriptmasterlabs.com)",
+    }
+    last_err = None
     for rpc in _BASE_RPCS:
-        if not rpc:
-            continue
         try:
-            req = urllib.request.Request(rpc, data=body, headers={"Content-Type": "application/json"})
-            with urllib.request.urlopen(req, timeout=12) as r:
+            req = urllib.request.Request(rpc, data=body, headers=headers)
+            with urllib.request.urlopen(req, timeout=15) as r:
                 d = json.loads(r.read().decode())
+            if d.get("error"):
+                last_err = d["error"]
+                continue
             if d.get("result") is not None:
                 return d["result"]
-        except Exception:
+        except Exception as e:
+            last_err = str(e)[:120]
             continue
     return None
 
@@ -159,7 +170,7 @@ def _verify_base_usdc_tx(tx_hash: str, pay_to: str, min_units: int) -> dict:
         return {"ok": False, "error": "payment_already_redeemed"}
     receipt = _rpc_call("eth_getTransactionReceipt", [tx_hash])
     if not receipt:
-        return {"ok": False, "error": "tx_not_found_or_pending"}
+        return {"ok": False, "error": "tx_not_found_or_pending_or_rpc_blocked"}
     if receipt.get("status") not in ("0x1", 1, "0x01"):
         return {"ok": False, "error": "tx_reverted"}
     usdc = USDC.get(_NETWORK_KEY, USDC.get("base", {})).get("asset", "").lower()
