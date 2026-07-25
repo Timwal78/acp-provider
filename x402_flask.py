@@ -278,9 +278,10 @@ def _402(requirements: dict, reason: str = "payment_required", query_params: dic
     # and is NOT a valid x402 accept entry for x402scan — attach only as
     # optional second accept if configured, but keep primary exact/base clean.
     _amt = requirements.get("amount") or requirements.get("maxAmountRequired")
-    _base_accept = {
+    # CAIP-2 only — x402scan rejects plain 'base' in any accepts[] slot (2026-07-25).
+    accepts = [{
         "scheme": requirements.get("scheme", "exact"),
-        "network": requirements.get("network", NETWORK_CAIP),
+        "network": NETWORK_CAIP,  # force CAIP-2 for scan; ignore plain base from env
         "amount": _amt,
         "maxAmountRequired": requirements.get("maxAmountRequired") or _amt,
         "asset": requirements.get("asset"),
@@ -290,13 +291,7 @@ def _402(requirements: dict, reason: str = "payment_required", query_params: dic
         "description": requirements.get("description"),
         "mimeType": requirements.get("mimeType", "application/json"),
         "extra": requirements.get("extra") or {"name": "USD Coin", "version": "2"},
-    }
-    # Dual network: CAIP-2 for x402scan registry + plain 'base' for x402-fetch clients.
-    accepts = [dict(_base_accept)]
-    plain = dict(_base_accept)
-    plain["network"] = "base"
-    if _base_accept.get("network") != "base":
-        accepts.append(plain)
+    }]
     # Do NOT append xrpl-invoice into accepts for the challenge that scanners
     # validate — unknown schemes make the whole 402 "invalid". RLUSD stays on
     # /.well-known/x402 rails metadata only.
