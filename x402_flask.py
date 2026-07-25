@@ -1,3 +1,31 @@
+
+def _apply_cors(app):
+    """Browser dashboards (scriptmasterlabs.com) must read discovery manifests cross-origin."""
+    @app.before_request
+    def _cors_before():
+        from flask import request, make_response
+        if request.method == "OPTIONS":
+            r = make_response("", 204)
+            r.headers["Access-Control-Allow-Origin"] = "*"
+            r.headers["Access-Control-Allow-Methods"] = "GET,HEAD,POST,OPTIONS"
+            r.headers["Access-Control-Allow-Headers"] = "Content-Type, X-PAYMENT, X-PAYMENT-TX, PAYMENT-SIGNATURE, Accept"
+            return r
+
+    @app.after_request
+    def _cors_after_request(resp):
+        resp.headers.setdefault("Access-Control-Allow-Origin", "*")
+        resp.headers.setdefault("Access-Control-Allow-Methods", "GET,HEAD,POST,OPTIONS")
+        resp.headers.setdefault(
+            "Access-Control-Allow-Headers",
+            "Content-Type, X-PAYMENT, X-PAYMENT-TX, PAYMENT-SIGNATURE, Accept",
+        )
+        resp.headers.setdefault(
+            "Access-Control-Expose-Headers",
+            "PAYMENT-REQUIRED, X-PAYMENT-REQUIRED, X-PAYMENT-RESPONSE",
+        )
+        return resp
+
+
 """
 x402_flask.py — Protocol-compliant x402 paywall for the SqueezeOS Flask API.
 Real x402 wire protocol (HTTP 402 -> accepts -> X-PAYMENT -> facilitator /verify+/settle)
