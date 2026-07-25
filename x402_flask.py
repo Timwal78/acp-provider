@@ -116,6 +116,74 @@ USDC = {
                      "extra": {"name": "USDC", "version": "2"}},
 }
 
+
+# ── Sovereign rail: on-chain USDC Transfer verified via public Base RPC ──
+# Clients pay USDC on Base then retry with header X-PAYMENT-TX=<txHash>.
+# No facilitator. Replay-protected in-process (resets on redeploy).
+_TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+_REDEEMED_TXS: set[str] = set()
+_BASE_RPCS = [
+    os.environ.get("BASE_RPC_URL") or "",
+    "https://mainnet.base.org",
+    "https://base.llamarpc.com",
+    "https://base-rpc.publicnode.com",
+    "https://1rpc.io/base",
+]
+
+def _rpc_call(method: str, params: list) -> dict | None:
+    body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}).encode()
+    for rpc in _BASE_RPCS:
+        if not rpc:
+            continue
+        try:
+            req = urllib.request.Request(rpc, data=body, headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=12) as r:
+                d = json.loads(r.read().decode())
+            if d.get("result") is not None:
+                return d["result"]
+        except Exception:
+            continue
+    return None
+
+def _topic_to_addr(topic: str) -> str:
+    return "0x" + topic[-40:].lower()
+
+def _verify_base_usdc_tx(tx_hash: str, pay_to: str, min_units: int) -> dict:
+    """Return {ok, from?, amount?, error?} for a confirmed USDC transfer to pay_to."""
+    if not isinstance(tx_hash, str) or not tx_hash.startswith("0x") or len(tx_hash) != 66:
+        return {"ok": False, "error": "invalid_tx_hash_format"}
+    h = tx_hash.lower()
+    if h in _REDEEMED_TXS:
+        return {"ok": False, "error": "payment_already_redeemed"}
+    receipt = _rpc_call("eth_getTransactionReceipt", [tx_hash])
+    if not receipt:
+        return {"ok": False, "error": "tx_not_found_or_pending"}
+    if receipt.get("status") not in ("0x1", 1, "0x01"):
+        return {"ok": False, "error": "tx_reverted"}
+    usdc = USDC.get(_NETWORK_KEY, USDC.get("base", {})).get("asset", "").lower()
+    pay = (pay_to or PAY_TO).lower()
+    for log in receipt.get("logs") or []:
+        if (log.get("address") or "").lower() != usdc:
+            continue
+        topics = log.get("topics") or []
+        if len(topics) < 3:
+            continue
+        if (topics[0] or "").lower() != _TRANSFER_TOPIC:
+            continue
+        to_addr = _topic_to_addr(topics[2])
+        if to_addr != pay:
+            continue
+        try:
+            value = int(log.get("data") or "0x0", 16)
+        except Exception:
+            continue
+        if value < int(min_units):
+            continue
+        frm = _topic_to_addr(topics[1]) if topics[1] else ""
+        return {"ok": True, "from": frm, "amount": value}
+    return {"ok": False, "error": "no_matching_usdc_transfer"}
+
+
 DISCOVERY = []
 
 
@@ -466,6 +534,37 @@ def x402_guard(price_usdc: str, description: str, discoverable: bool = True, pat
                 except ImportError:
                     pass  # ap2 module unavailable — fall through to pure x402
 
+            # Rail B (sovereign): X-PAYMENT-TX = on-chain USDC tx hash
+            tx_hash = (
+                request.headers.get("X-PAYMENT-TX")
+                or request.headers.get("x-payment-tx")
+                or ""
+            ).strip()
+            if tx_hash:
+                min_units = int(reqs.get("amount") or reqs.get("maxAmountRequired") or 0)
+                v = _verify_base_usdc_tx(tx_hash, reqs.get("payTo") or PAY_TO, min_units)
+                if not v.get("ok"):
+                    return _402(reqs, f"invalid_sovereign_payment: {v.get('error')}", query_params=query_params)
+                result = fn(*args, **kwargs)
+                _REDEEMED_TXS.add(tx_hash.lower())
+                resp = make_response(result)
+                if isinstance(result, dict):
+                    # attach paid receipt when JSON
+                    pass
+                resp.headers["X-PAYMENT-RESPONSE"] = base64.b64encode(json.dumps({
+                    "success": True,
+                    "rail": "sovereign",
+                    "tx": tx_hash,
+                    "payer": v.get("from") or "unknown",
+                    "amount": v.get("amount"),
+                }, separators=(",", ":")).encode()).decode()
+                try:
+                    from proof402_integration import _fire_payment_discord
+                    _fire_payment_discord(v.get("from") or "unknown", request.path, 2)
+                except Exception:
+                    pass
+                return resp
+
             header = request.headers.get("X-PAYMENT")
             if not header:
                 return _402(reqs, "payment_required", query_params=query_params)
@@ -486,13 +585,6 @@ def x402_guard(price_usdc: str, description: str, discoverable: bool = True, pat
             if settle.get("success", False):
                 resp.headers["X-PAYMENT-RESPONSE"] = base64.b64encode(
                     json.dumps(settle).encode()).decode()
-                # SML fix: the RLUSD rail (proof402_integration.require_payment)
-                # has always fired a Discord payment alert on success — this
-                # Coinbase/USDC rail never did, so a real settled payment left
-                # zero trace anywhere except the on-chain transfer itself. An
-                # $8 USDC payment surfaced with no record in Discord or the
-                # in-memory analytics funnel (which also resets on every
-                # redeploy) before this was caught.
                 try:
                     from proof402_integration import _fire_payment_discord
                     payer = (
