@@ -429,31 +429,62 @@ def api_dexscreener_search(params: dict | None = None) -> dict:
 
 
 def api_crypto_news(params: dict | None = None) -> dict:
-    """Crypto news headlines (CryptoCompare free). Params: { limit?: int, categories?: string }"""
+    """Crypto news headlines from public RSS (CoinDesk + Bitcoin Magazine). Params: { limit?: int }"""
+    import re as _re
+    from html import unescape
     p = params or {}
     try:
         limit = max(1, min(int(p.get("limit") or 20), 50))
     except Exception:
         limit = 20
-    cats = (p.get("categories") or p.get("category") or "").strip()
-    url = f"https://min-api.cryptocompare.com/data/v2/news/?lang=EN"
-    if cats:
-        from urllib.parse import quote
-        url += f"&categories={quote(cats)}"
-    data = _get(url)
-    items = (data or {}).get("Data") if isinstance(data, dict) else []
+    feeds = [
+        ("coindesk", "https://www.coindesk.com/arc/outboundfeeds/rss/"),
+        ("bitcoinmagazine", "https://bitcoinmagazine.com/.rss/full/"),
+        ("cointelegraph", "https://cointelegraph.com/rss"),
+    ]
     out = []
-    for it in (items or [])[:limit]:
-        out.append({
-            "id": it.get("id"),
-            "title": it.get("title"),
-            "source": it.get("source"),
-            "url": it.get("url") or it.get("guid"),
-            "published_on": it.get("published_on"),
-            "categories": it.get("categories"),
-            "body": (it.get("body") or "")[:400],
-        })
-    return _ok({"timestamp": _now(), "count": len(out), "news": out, "source": "cryptocompare_news"})
+    sources_ok = []
+    for src, url in feeds:
+        req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/rss+xml,application/xml,text/xml,*/*"})
+        try:
+            with urllib.request.urlopen(req, timeout=18) as r:
+                xml = r.read(200_000).decode("utf-8", "replace")
+        except Exception as e:
+            continue
+        sources_ok.append(src)
+        # naive item split — good enough for RSS 2.0
+        for block in _re.findall(r"<item>(.*?)</item>", xml, flags=_re.I | _re.S):
+            def _tag(name: str) -> str:
+                m = _re.search(rf"<{name}[^>]*>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</{name}>", block, flags=_re.I | _re.S)
+                return unescape((m.group(1) if m else "").strip())
+            title = _tag("title")
+            link = _tag("link")
+            if not link:
+                m = _re.search(r'href="([^"]+)"', block)
+                link = m.group(1) if m else ""
+            pub = _tag("pubDate") or _tag("published")
+            desc = _re.sub(r"<[^>]+>", " ", _tag("description") or "")
+            desc = _re.sub(r"\s+", " ", desc).strip()[:400]
+            if not title:
+                continue
+            out.append({
+                "title": title,
+                "source": src,
+                "url": link,
+                "published": pub,
+                "summary": desc,
+            })
+            if len(out) >= limit:
+                break
+        if len(out) >= limit:
+            break
+    return _ok({
+        "timestamp": _now(),
+        "count": len(out),
+        "news": out[:limit],
+        "feeds_ok": sources_ok,
+        "source": "public_rss_crypto_news",
+    })
 
 
 def api_token_details(params: dict | None = None) -> dict:
