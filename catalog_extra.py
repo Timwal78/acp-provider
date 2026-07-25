@@ -457,7 +457,7 @@ EXTRA_ENDPOINTS = {
 }
 
 EXTRA_PRICES_USD = {
-    "crypto_price": "0.10",
+    "crypto_price": "0.001",
     "crypto_global": "0.10",
     "fx_rate": "0.08",
     "fear_greed_index": "0.08",
@@ -465,9 +465,9 @@ EXTRA_PRICES_USD = {
     "defi_protocol_tvl": "0.15",
     "stablecoin_mcap": "0.15",
     "btc_mempool_fees": "0.08",
-    "eth_price": "0.05",
-    "btc_price": "0.05",
-    "sol_price": "0.05",
+    "eth_price": "0.001",
+    "btc_price": "0.001",
+    "sol_price": "0.001",
     "hyperliquid_meta": "0.15",
     "hyperliquid_all_mids": "0.15",
     "binance_funding": "0.12",
