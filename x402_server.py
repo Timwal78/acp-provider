@@ -77,10 +77,10 @@ _PRICES_USD = {
     # --- AI / Compliance / Macro ---
     "ai_fact_check": "0.001",
     "entity_compliance_check": "0.001",
-    "druckenmiller_macro_regime_analysis": "1.00",
-    "compliance_anomaly_report":        "2.00",
-    "compliance_bank_audit":            "2.00",
-    "compliance_regulator_query":       "1.00",
+    "druckenmiller_macro_regime_analysis": "0.001",
+    "compliance_anomaly_report":        "0.001",
+    "compliance_bank_audit":            "0.001",
+    "compliance_regulator_query":       "0.001",
     # --- Federal contracting (SAM.gov + USAspending) ---
     "sam_opportunities": "0.001",
     "federal_contract_opportunities": "0.001",
