@@ -163,6 +163,41 @@ _KNOWN_QUERY_PARAMS = {
     "stablecoin_watch": {},
     "web_fetch": {"url": {"type": "string", "example": "https://api.coingecko.com/api/v3/ping"}},
     "token_top_markets": {"id": {"type": "string", "example": "ethereum", "default": "ethereum"}},
+    "llm_chat": {
+        "prompt": {"type": "string", "example": "Say hi in one sentence"},
+        "message": {"type": "string", "example": "Hello"},
+        "model": {"type": "string", "example": "x-ai-grok-4-5"},
+        "max_tokens": {"type": "integer", "example": 256, "default": 256},
+        "temperature": {"type": "number", "example": 0.2, "default": 0.2},
+    },
+    "web_markdown": {"url": {"type": "string", "example": "https://example.com"}},
+    "web_search": {
+        "q": {"type": "string", "example": "x402 micropayments"},
+        "limit": {"type": "integer", "example": 8, "default": 8},
+    },
+    "eth_rpc": {
+        "method": {"type": "string", "example": "eth_blockNumber", "default": "eth_blockNumber"},
+        "address": {"type": "string", "example": "0x0000000000000000000000000000000000000000"},
+        "hash": {"type": "string", "example": "0x"},
+        "block": {"type": "string", "example": "latest", "default": "latest"},
+    },
+    "base_rpc": {
+        "method": {"type": "string", "example": "eth_blockNumber", "default": "eth_blockNumber"},
+        "address": {"type": "string", "example": "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa"},
+        "hash": {"type": "string", "example": "0x"},
+        "block": {"type": "string", "example": "latest", "default": "latest"},
+    },
+    "domain_enrich": {"domain": {"type": "string", "example": "scriptmasterlabs.com"}},
+    "news_headlines": {
+        "q": {"type": "string", "example": "bitcoin OR ethereum"},
+        "limit": {"type": "integer", "example": 15, "default": 15},
+        "hl": {"type": "string", "example": "en", "default": "en"},
+        "gl": {"type": "string", "example": "US", "default": "US"},
+    },
+    "social_search": {
+        "q": {"type": "string", "example": "x402 agents"},
+        "limit": {"type": "integer", "example": 8, "default": 8},
+    },
     "openfda_drug_label": {"q": {"type": "string", "example": "ibuprofen"}},
     "clinical_trials_search": {"q": {"type": "string", "example": "diabetes"}},
     "sec_company_tickers": {"q": {"type": "string", "example": "AAPL"}},
@@ -235,12 +270,21 @@ def favicon():
 @app.route("/")
 @app.route("/api/status")
 def status():
+    # Root stays 200 for AWS/human catalog. Scanners that need a paid URL must
+    # hit paid_demo_url (real HTTP 402), not bare /.
+    paid = "https://acp-x402-scriptmasterlabs.onrender.com/x402/crypto-price"
     return jsonify({
         "service": "acp-provider x402 HTTP layer",
         "agent": "scriptmasterlabs",
         "endpoints": sorted(f"/x402/{n.replace('_', '-')}" for n in PROVIDER_ENDPOINTS),
         "free_tier": False,
-        "note": "Every endpoint above requires x402 payment (USDC on Base). See /.well-known/x402 for rails and pricing.",
+        "x402": True,
+        "price_floor_usdc": "0.001",
+        "network": "eip155:8453",
+        "paid_demo_url": paid,
+        "discovery": "https://acp-x402-scriptmasterlabs.onrender.com/.well-known/x402",
+        "note": "Root is a catalog (HTTP 200). Every /x402/* snack requires payment. Point x402scan/Bazaar at paid_demo_url for a live 402 challenge.",
+        "scanner_hint": "GET paid_demo_url without payment → HTTP 402",
     })
 
 

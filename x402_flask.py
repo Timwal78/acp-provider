@@ -533,23 +533,14 @@ def x402_guard(price_usdc: str, description: str, discoverable: bool = True, pat
             )
             def _split_keys(env_name: str) -> list[str]:
                 return [k.strip() for k in os.environ.get(env_name, "").split(",") if k.strip()]
+            # Free-pass keys: ONLY explicit env allowlists. No baked defaults.
+            # Testers who did not approve must pay x402 — never ship a public bypass.
             agent_keys = _split_keys("AGENT_API_KEYS")
             market_keys = _split_keys("MARKETPLACE_API_KEYS") + _split_keys("ZYLA_API_KEYS")
-            # Stable marketplace listing key (public in Postman collection).
-            # Override/disable with MARKETPLACE_API_KEYS / DISABLE_DEFAULT_MARKETPLACE_KEY=1
-            default_market = []
-            if os.environ.get("DISABLE_DEFAULT_MARKETPLACE_KEY", "").strip() not in ("1", "true", "yes"):
-                baked = os.environ.get(
-                    "DEFAULT_MARKETPLACE_API_KEY",
-                    "sml_zyla_omsV0ZcPr9mIQydptCqgC5QuFlV8FtE7",
-                ).strip()
-                if baked:
-                    default_market = [baked]
             valid_keys = (
                 [k for k in [os.environ.get("OPERATOR_API_KEY"), os.environ.get("OWNER_API_KEY"), os.environ.get("ZYLA_API_KEY")] if k]
                 + agent_keys
                 + market_keys
-                + default_market
             )
             if passed_key and passed_key in valid_keys:
                 return fn(*args, **kwargs)
