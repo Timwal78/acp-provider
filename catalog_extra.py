@@ -1587,12 +1587,79 @@ def api_tx_status(params: dict | None = None) -> dict:
         return _ok({"tx": tx, "error": str(e)[:200], "source": "tx_status"})
 
 
+def api_us_weather_alerts(params: dict | None = None) -> dict:
+    p = params or {}
+    state = (p.get("state") or p.get("area") or "").upper()[:2]
+    url = f"https://api.weather.gov/alerts/active{'?area='+state if state else '?limit=10'}"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "scriptmasterlabs/1.0 (contact@scriptmasterlabs.com)", "Accept": "application/geo+json"})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            d = json.loads(r.read())
+        features = d.get("features", [])[:10]
+        alerts = [{"event": f["properties"].get("event"), "headline": f["properties"].get("headline", "")[:120], "severity": f["properties"].get("severity"), "area": f["properties"].get("areaDesc", "")[:80]} for f in features]
+        return _ok({"count": len(features), "state_filter": state or "all", "alerts": alerts, "source": "us_weather_gov"})
+    except Exception as e:
+        return _ok({"error": str(e)[:200], "source": "us_weather_alerts"})
+
+
+def api_usgs_earthquakes(params: dict | None = None) -> dict:
+    p = params or {}
+    min_mag = p.get("min_magnitude") or p.get("minmagnitude") or "2.5"
+    limit = min(int(p.get("limit") or 10), 25)
+    url = f"https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&minmagnitude={min_mag}&limit={limit}&orderby=time"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": UA})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            d = json.loads(r.read())
+        features = d.get("features", [])
+        quakes = [{"magnitude": f["properties"].get("mag"), "place": f["properties"].get("place"), "time": f["properties"].get("time"), "depth_km": f.get("geometry", {}).get("coordinates", [None, None, None])[2]} for f in features]
+        return _ok({"count": len(quakes), "min_magnitude": min_mag, "earthquakes": quakes, "source": "usgs_earthquake_hazards"})
+    except Exception as e:
+        return _ok({"error": str(e)[:200], "source": "usgs_earthquakes"})
+
+
+def api_fda_food_recalls(params: dict | None = None) -> dict:
+    import urllib.parse as _uparse
+    p = params or {}
+    q = p.get("q") or p.get("query") or p.get("search") or "allergy"
+    limit = min(int(p.get("limit") or 5), 10)
+    url = f"https://api.fda.gov/food/enforcement.json?search={_uparse.quote(q)}&limit={limit}"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": UA})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            d = json.loads(r.read())
+        results = d.get("results", [])
+        recalls = [{"product": r.get("product_description", "")[:80], "reason": r.get("reason_for_recall", "")[:100], "status": r.get("status"), "date": r.get("recall_initiation_date"), "company": r.get("recalling_firm", "")[:60]} for r in results]
+        return _ok({"query": q, "count": len(recalls), "recalls": recalls, "source": "fda_food_enforcement"})
+    except Exception as e:
+        return _ok({"query": q, "error": str(e)[:200], "source": "fda_food_recalls"})
+
+
+def api_us_gov_search(params: dict | None = None) -> dict:
+    import urllib.parse as _uparse
+    p = params or {}
+    q = p.get("q") or p.get("query") or p.get("search") or "AI policy"
+    limit = min(int(p.get("limit") or 5), 10)
+    # Try search.usa.gov
+    url = f"https://search.usa.gov/api/v2/search/web?query={_uparse.quote(q)}&affiliate=usagov&limit={limit}"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            d = json.loads(r.read())
+        results = d.get("web", {}).get("results", []) or d.get("results", [])
+        items = [{"title": r.get("title", "")[:80], "url": r.get("url", ""), "snippet": r.get("snippet", "")[:150]} for r in results[:limit]]
+        return _ok({"query": q, "count": len(items), "results": items, "source": "usa_gov_search"})
+    except Exception as e:
+        return _ok({"query": q, "error": str(e)[:200], "source": "us_gov_search"})
+
+
 # Registry consumed by provider.py
 EXTRA_ENDPOINTS = {
     "crypto_price": api_crypto_price,
     "crypto_global": api_crypto_global,
     "fx_rate": api_fx_rate,
     "fear_greed_index": api_fear_greed_index,
+
     "defi_chains_tvl": api_defi_chains_tvl,
     "defi_protocol_tvl": api_defi_protocol_tvl,
     "stablecoin_mcap": api_stablecoin_mcap,
