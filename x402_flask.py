@@ -785,7 +785,12 @@ def _openapi_discovery_doc():
             "asset": "USDC",
             "assets": ["USDC", "USDG"],
             "network": NETWORK,
-            "networks": [NETWORK, ROBINHOOD_CAIP],
+            "networks": list(dict.fromkeys([
+                NETWORK,
+                "eip155:8453" if NETWORK in ("base", "base-mainnet") else NETWORK,
+                ROBINHOOD_CAIP,
+                "eip155:4663",
+            ])),
             "payTo": PAY_TO,
             "payToByNetwork": {
                 NETWORK: PAY_TO,
@@ -917,7 +922,12 @@ def _openapi_discovery_doc():
         "resources": resources,
         "resourceUrls": [r["url"] for r in resources],
         "network": NETWORK,
-        "networks": [NETWORK, ROBINHOOD_CAIP],
+        "networks": list(dict.fromkeys([
+            NETWORK,
+            "eip155:8453" if NETWORK in ("base", "base-mainnet") else NETWORK,
+            ROBINHOOD_CAIP,
+            "eip155:4663",
+        ])),
         "payTo": PAY_TO,
         "payToByNetwork": {
             NETWORK: PAY_TO,
