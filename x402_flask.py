@@ -776,13 +776,27 @@ def _openapi_discovery_doc():
         resources.append({
             "path": path,
             "url": f"{base}{path}",
+            "resource": f"{base}{path}",
             "name": name,
             "description": desc,
-            "price": {"amount": price, "assets": ["USDC"]},
+            "method": "GET",
+            "price": {"amount": price, "assets": ["USDC", "USDG"]},
+            "price_usd": float(price) if price.replace(".", "", 1).isdigit() else 0.001,
+            "asset": "USDC",
+            "assets": ["USDC", "USDG"],
             "network": NETWORK,
+            "networks": [NETWORK, ROBINHOOD_CAIP],
             "payTo": PAY_TO,
+            "payToByNetwork": {
+                NETWORK: PAY_TO,
+                "eip155:8453": PAY_TO,
+                ROBINHOOD_CAIP: PAY_TO,
+                "base": PAY_TO,
+                "robinhood": PAY_TO,
+            },
             "facilitator": FACILITATOR,
             "scheme": "exact",
+            "paid": True,
         })
 
     # free discovery aliases
@@ -901,6 +915,23 @@ def _openapi_discovery_doc():
             },
         ],
         "resources": resources,
+        "resourceUrls": [r["url"] for r in resources],
+        "network": NETWORK,
+        "networks": [NETWORK, ROBINHOOD_CAIP],
+        "payTo": PAY_TO,
+        "payToByNetwork": {
+            NETWORK: PAY_TO,
+            "eip155:8453": PAY_TO,
+            ROBINHOOD_CAIP: PAY_TO,
+            "base": PAY_TO,
+            "robinhood": PAY_TO,
+        },
+        "toolCount": len(resources),
+        "paidToolCount": len(resources),
+        "health": 1,
+        "routable": True,
+        "origin": base,
+        "homepage": "https://www.scriptmasterlabs.com",
     }
 
 
