@@ -142,6 +142,9 @@ PROOF402_BASE = os.environ.get("PROOF402_SERVER_URL", "https://four02proof.onren
 # Robinhood Chain / Global Dollar (USDG) — non-CDP discovery + sovereign X-PAYMENT-TX.
 # Confirmed live: chainId 4663, USDG 0x5fc5… 6 decimals on robinhoodchain.blockscout.com.
 ROBINHOOD_CAIP = "eip155:4663"
+SOLANA_CAIP = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"
+USDC_SOLANA_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+SOLANA_PAY_TO = os.environ.get("SOLANA_PAYMENT_RECEIVER", "E4d3JwcTjeqTRkkQS4moszcfa4R7G1NMgPSew4KBNFrB").strip()
 USDG_ROBINHOOD = os.environ.get(
     "USDG_ROBINHOOD_ASSET",
     "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
@@ -780,16 +783,17 @@ def _openapi_discovery_doc():
             "name": name,
             "description": desc,
             "method": "GET",
-            "price": {"amount": price, "assets": ["USDC", "USDG"]},
+            "price": {"amount": price, "assets": ["USDC", "USDG", "USDC-SOL"]},
             "price_usd": float(price) if price.replace(".", "", 1).isdigit() else 0.001,
             "asset": "USDC",
-            "assets": ["USDC", "USDG"],
+            "assets": ["USDC", "USDG", "USDC-SOL"],
             "network": NETWORK,
             "networks": list(dict.fromkeys([
                 NETWORK,
                 "eip155:8453" if NETWORK in ("base", "base-mainnet") else NETWORK,
                 ROBINHOOD_CAIP,
                 "eip155:4663",
+                SOLANA_CAIP,
             ])),
             "payTo": PAY_TO,
             "payToByNetwork": {
@@ -798,6 +802,8 @@ def _openapi_discovery_doc():
                 ROBINHOOD_CAIP: PAY_TO,
                 "base": PAY_TO,
                 "robinhood": PAY_TO,
+                SOLANA_CAIP: SOLANA_PAY_TO,
+                "solana": SOLANA_PAY_TO,
             },
             "facilitator": FACILITATOR,
             "scheme": "exact",
@@ -871,6 +877,17 @@ def _openapi_discovery_doc():
                         "rpc": "https://rpc.mainnet.chain.robinhood.com",
                         "note": "non-CDP — pay on Robinhood Chain then retry with X-PAYMENT-TX",
                     },
+                    {
+                        "id": "solana-usdc",
+                        "scheme": "exact",
+                        "network": SOLANA_CAIP,
+                        "asset": USDC_SOLANA_MINT,
+                        "assetSymbol": "USDC",
+                        "payTo": SOLANA_PAY_TO,
+                        "settlement": "sovereign-tx",
+                        "paymentHeader": "X-PAYMENT-TX",
+                        "note": "Pay SPL USDC on Solana then X-PAYMENT-TX=<base58 sig>",
+                    },
                 ],
             },
             "docs": "https://timwal78.github.io/acp-provider/rwa-api.html",
@@ -910,6 +927,18 @@ def _openapi_discovery_doc():
                 "explorer": "https://robinhoodchain.blockscout.com",
             },
             {
+                "name": "Solana / USDC (sovereign X-PAYMENT-TX)",
+                "network": SOLANA_CAIP,
+                "asset": USDC_SOLANA_MINT,
+                "assetSymbol": "USDC",
+                "payTo": SOLANA_PAY_TO,
+                "scheme": "exact",
+                "settlement": "sovereign-tx",
+                "paymentHeader": "X-PAYMENT-TX",
+                "rpc": os.environ.get("SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com"),
+                "explorer": "https://solscan.io",
+            },
+            {
                 "name": "XRPL / RLUSD (402Proof invoice flow)",
                 "network": "xrpl",
                 "asset": "RLUSD",
@@ -927,6 +956,7 @@ def _openapi_discovery_doc():
             "eip155:8453" if NETWORK in ("base", "base-mainnet") else NETWORK,
             ROBINHOOD_CAIP,
             "eip155:4663",
+            SOLANA_CAIP,
         ])),
         "payTo": PAY_TO,
         "payToByNetwork": {
@@ -935,6 +965,8 @@ def _openapi_discovery_doc():
             ROBINHOOD_CAIP: PAY_TO,
             "base": PAY_TO,
             "robinhood": PAY_TO,
+            SOLANA_CAIP: SOLANA_PAY_TO,
+            "solana": SOLANA_PAY_TO,
         },
         "toolCount": len(resources),
         "paidToolCount": len(resources),
