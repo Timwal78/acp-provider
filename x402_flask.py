@@ -139,6 +139,18 @@ def _cdp_auth_headers(method: str, host: str, path: str) -> dict:
 RLUSD_ISSUER  = os.environ.get("RLUSD_ISSUER",  "rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De")
 PROOF402_BASE = os.environ.get("PROOF402_SERVER_URL", "https://four02proof.onrender.com").rstrip("/")
 
+# Robinhood Chain / Global Dollar (USDG) — non-CDP discovery + sovereign X-PAYMENT-TX.
+# Confirmed live: chainId 4663, USDG 0x5fc5… 6 decimals on robinhoodchain.blockscout.com.
+ROBINHOOD_CAIP = "eip155:4663"
+USDG_ROBINHOOD = os.environ.get(
+    "USDG_ROBINHOOD_ASSET",
+    "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+)
+ROBINHOOD_RPCS = [u for u in [
+    (os.environ.get("ROBINHOOD_RPC_URL") or "").strip(),
+    "https://rpc.mainnet.chain.robinhood.com",
+] if u]
+
 USDC = {
     "base":         {"asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
                      "extra": {"name": "USD Coin", "version": "2"}},
@@ -147,9 +159,10 @@ USDC = {
 }
 
 
-# ── Sovereign rail: on-chain USDC Transfer verified via public Base RPC ──
-# Clients pay USDC on Base then retry with header X-PAYMENT-TX=<txHash>.
+# ── Sovereign rail: on-chain Transfer verified via public RPC ──
+# Clients pay then retry with header X-PAYMENT-TX=<txHash>.
 # No facilitator. Replay-protected in-process (resets on redeploy).
+# Tries Base USDC first (CDP-compatible money path), then Robinhood USDG.
 _TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 _REDEEMED_TXS: set[str] = set()
 _BASE_RPCS = [u for u in [
@@ -162,8 +175,8 @@ _BASE_RPCS = [u for u in [
     "https://base.llamarpc.com",
 ] if u]
 
-def _rpc_call(method: str, params: list):
-    """JSON-RPC with UA — bare python-urllib gets 403 from several public Base RPCs."""
+def _rpc_call(method: str, params: list, rpcs: list | None = None):
+    """JSON-RPC with UA — bare python-urllib gets 403 from several public RPCs."""
     body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}).encode()
     headers = {
         "Content-Type": "application/json",
@@ -171,7 +184,7 @@ def _rpc_call(method: str, params: list):
         "User-Agent": "scriptmasterlabs-x402-sovereign/1.0 (+https://www.scriptmasterlabs.com)",
     }
     last_err = None
-    for rpc in _BASE_RPCS:
+    for rpc in (rpcs or _BASE_RPCS):
         try:
             req = urllib.request.Request(rpc, data=body, headers=headers)
             with urllib.request.urlopen(req, timeout=15) as r:
@@ -189,22 +202,22 @@ def _rpc_call(method: str, params: list):
 def _topic_to_addr(topic: str) -> str:
     return "0x" + topic[-40:].lower()
 
-def _verify_base_usdc_tx(tx_hash: str, pay_to: str, min_units: int) -> dict:
-    """Return {ok, from?, amount?, error?} for a confirmed USDC transfer to pay_to."""
+def _verify_erc20_tx(tx_hash: str, pay_to: str, min_units: int, asset: str, rpcs: list, miss_error: str, chain_tag: str) -> dict:
+    """Return {ok, from?, amount?, chain?, error?} for a confirmed ERC-20 Transfer."""
     if not isinstance(tx_hash, str) or not tx_hash.startswith("0x") or len(tx_hash) != 66:
         return {"ok": False, "error": "invalid_tx_hash_format"}
     h = tx_hash.lower()
     if h in _REDEEMED_TXS:
         return {"ok": False, "error": "payment_already_redeemed"}
-    receipt = _rpc_call("eth_getTransactionReceipt", [tx_hash])
+    receipt = _rpc_call("eth_getTransactionReceipt", [tx_hash], rpcs=rpcs)
     if not receipt:
         return {"ok": False, "error": "tx_not_found_or_pending_or_rpc_blocked"}
     if receipt.get("status") not in ("0x1", 1, "0x01"):
         return {"ok": False, "error": "tx_reverted"}
-    usdc = USDC.get(_NETWORK_KEY, USDC.get("base", {})).get("asset", "").lower()
+    asset_lc = (asset or "").lower()
     pay = (pay_to or PAY_TO).lower()
     for log in receipt.get("logs") or []:
-        if (log.get("address") or "").lower() != usdc:
+        if (log.get("address") or "").lower() != asset_lc:
             continue
         topics = log.get("topics") or []
         if len(topics) < 3:
@@ -221,8 +234,35 @@ def _verify_base_usdc_tx(tx_hash: str, pay_to: str, min_units: int) -> dict:
         if value < int(min_units):
             continue
         frm = _topic_to_addr(topics[1]) if topics[1] else ""
-        return {"ok": True, "from": frm, "amount": value}
-    return {"ok": False, "error": "no_matching_usdc_transfer"}
+        return {"ok": True, "from": frm, "amount": value, "chain": chain_tag, "asset": asset}
+    return {"ok": False, "error": miss_error}
+
+def _verify_base_usdc_tx(tx_hash: str, pay_to: str, min_units: int) -> dict:
+    """Return {ok, from?, amount?, error?} for a confirmed USDC transfer to pay_to on Base."""
+    usdc = USDC.get(_NETWORK_KEY, USDC.get("base", {})).get("asset", "")
+    return _verify_erc20_tx(
+        tx_hash, pay_to, min_units, usdc, _BASE_RPCS, "no_matching_usdc_transfer", "base",
+    )
+
+def _verify_robinhood_usdg_tx(tx_hash: str, pay_to: str, min_units: int) -> dict:
+    """Confirmed USDG transfer on Robinhood Chain 4663 (non-CDP rail)."""
+    return _verify_erc20_tx(
+        tx_hash, pay_to, min_units, USDG_ROBINHOOD, ROBINHOOD_RPCS,
+        "no_matching_usdg_transfer", "robinhood",
+    )
+
+def _verify_sovereign_tx(tx_hash: str, pay_to: str, min_units: int) -> dict:
+    """Base USDC first (CDP money path), then Robinhood USDG."""
+    base_hit = _verify_base_usdc_tx(tx_hash, pay_to, min_units)
+    if base_hit.get("ok"):
+        return base_hit
+    rh_hit = _verify_robinhood_usdg_tx(tx_hash, pay_to, min_units)
+    if rh_hit.get("ok"):
+        return rh_hit
+    return {
+        "ok": False,
+        "error": f"sovereign_unverified base={base_hit.get('error')} robinhood={rh_hit.get('error')}",
+    }
 
 
 DISCOVERY = []
@@ -383,9 +423,9 @@ def _402(requirements: dict, reason: str = "payment_required", query_params: dic
         body.accepts[], body.extensions.bazaar
       - headers PAYMENT-REQUIRED + X-PAYMENT-REQUIRED = base64(JSON body)
     """
-    # USDC/base accept only for scanner validity. RLUSD is a proprietary rail
-    # and is NOT a valid x402 accept entry for x402scan — attach only as
-    # optional second accept if configured, but keep primary exact/base clean.
+    # Slot 0 = Base USDC (CDP / x402scan primary). Slot 1 = Robinhood USDG
+    # (non-CDP discovery + sovereign X-PAYMENT-TX). Never replace Base.
+    # RLUSD stays on /.well-known/x402 rails metadata only — not in accepts.
     _amt = requirements.get("amount") or requirements.get("maxAmountRequired")
     # CAIP-2 only — x402scan rejects plain 'base' in any accepts[] slot (2026-07-25).
     accepts = [{
@@ -400,10 +440,29 @@ def _402(requirements: dict, reason: str = "payment_required", query_params: dic
         "description": requirements.get("description"),
         "mimeType": requirements.get("mimeType", "application/json"),
         "extra": requirements.get("extra") or {"name": "USD Coin", "version": "2"},
+    }, {
+        "scheme": "exact",
+        "network": ROBINHOOD_CAIP,
+        "amount": _amt,
+        "maxAmountRequired": requirements.get("maxAmountRequired") or _amt,
+        "asset": USDG_ROBINHOOD,
+        "payTo": requirements.get("payTo") or PAY_TO,
+        "maxTimeoutSeconds": requirements.get("maxTimeoutSeconds", MAX_TIMEOUT),
+        "resource": requirements.get("resource"),
+        "description": requirements.get("description"),
+        "mimeType": requirements.get("mimeType", "application/json"),
+        "extra": {
+            "name": "Global Dollar",
+            "symbol": "USDG",
+            "version": "1",
+            "decimals": 6,
+            "chainId": 4663,
+            "settlement": "sovereign-tx",
+            "paymentHeader": "X-PAYMENT-TX",
+            "rpc": "https://rpc.mainnet.chain.robinhood.com",
+            "explorer": "https://robinhoodchain.blockscout.com",
+        },
     }]
-    # Do NOT append xrpl-invoice into accepts for the challenge that scanners
-    # validate — unknown schemes make the whole 402 "invalid". RLUSD stays on
-    # /.well-known/x402 rails metadata only.
 
     err = (reason or "payment_required").strip()
     if err in ("payment required", "Payment Required", ""):
@@ -566,7 +625,7 @@ def x402_guard(price_usdc: str, description: str, discoverable: bool = True, pat
                 except ImportError:
                     pass  # ap2 module unavailable — fall through to pure x402
 
-            # Rail B (sovereign): X-PAYMENT-TX = on-chain USDC tx hash
+            # Rail B (sovereign): X-PAYMENT-TX = on-chain Transfer (Base USDC, then Robinhood USDG)
             tx_hash = (
                 request.headers.get("X-PAYMENT-TX")
                 or request.headers.get("x-payment-tx")
@@ -574,7 +633,7 @@ def x402_guard(price_usdc: str, description: str, discoverable: bool = True, pat
             ).strip()
             if tx_hash:
                 min_units = int(reqs.get("amount") or reqs.get("maxAmountRequired") or 0)
-                v = _verify_base_usdc_tx(tx_hash, reqs.get("payTo") or PAY_TO, min_units)
+                v = _verify_sovereign_tx(tx_hash, reqs.get("payTo") or PAY_TO, min_units)
                 if not v.get("ok"):
                     return _402(reqs, f"invalid_sovereign_payment: {v.get('error')}", query_params=query_params)
                 result = fn(*args, **kwargs)
@@ -583,12 +642,16 @@ def x402_guard(price_usdc: str, description: str, discoverable: bool = True, pat
                 if isinstance(result, dict):
                     # attach paid receipt when JSON
                     pass
+                chain = v.get("chain") or "base"
+                rail = "sovereign:robinhood-usdg" if chain == "robinhood" else "sovereign:base-usdc"
                 resp.headers["X-PAYMENT-RESPONSE"] = base64.b64encode(json.dumps({
                     "success": True,
-                    "rail": "sovereign",
+                    "rail": rail,
+                    "chain": chain,
                     "tx": tx_hash,
                     "payer": v.get("from") or "unknown",
                     "amount": v.get("amount"),
+                    "asset": v.get("asset"),
                 }, separators=(",", ":")).encode()).decode()
                 try:
                     from proof402_integration import _fire_payment_discord
@@ -775,7 +838,20 @@ def _openapi_discovery_doc():
                         "facilitator": FACILITATOR,
                         "settlement": "facilitator",
                         "paymentHeader": "X-PAYMENT",
-                    }
+                    },
+                    {
+                        "id": "robinhood-usdg",
+                        "scheme": "exact",
+                        "network": ROBINHOOD_CAIP,
+                        "asset": USDG_ROBINHOOD,
+                        "assetSymbol": "USDG",
+                        "payTo": PAY_TO,
+                        "settlement": "sovereign-tx",
+                        "paymentHeader": "X-PAYMENT-TX",
+                        "chainId": 4663,
+                        "rpc": "https://rpc.mainnet.chain.robinhood.com",
+                        "note": "non-CDP — pay on Robinhood Chain then retry with X-PAYMENT-TX",
+                    },
                 ],
             },
             "docs": "https://timwal78.github.io/acp-provider/rwa-api.html",
@@ -800,6 +876,19 @@ def _openapi_discovery_doc():
                 "facilitator": FACILITATOR,
                 "scheme": "exact",
                 "paymentHeader": "X-PAYMENT",
+            },
+            {
+                "name": "Robinhood Chain / USDG (sovereign X-PAYMENT-TX)",
+                "network": ROBINHOOD_CAIP,
+                "asset": USDG_ROBINHOOD,
+                "assetSymbol": "USDG",
+                "payTo": PAY_TO,
+                "scheme": "exact",
+                "settlement": "sovereign-tx",
+                "paymentHeader": "X-PAYMENT-TX",
+                "chainId": 4663,
+                "rpc": "https://rpc.mainnet.chain.robinhood.com",
+                "explorer": "https://robinhoodchain.blockscout.com",
             },
             {
                 "name": "XRPL / RLUSD (402Proof invoice flow)",
