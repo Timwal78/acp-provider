@@ -1364,8 +1364,9 @@ def api_hmac_compute(params: dict | None = None) -> dict:
 def api_base64_encode(params: dict | None = None) -> dict:
     import base64
     p = params or {}
-    text = p.get("text") or p.get("data") or ""
-    decode = str(p.get("decode") or "false").lower() == "true"
+    text = p.get("text") or p.get("data") or p.get("input") or ""
+    mode = (p.get("mode") or "encode").lower()
+    decode = mode == "decode" or str(p.get("decode") or "false").lower() == "true"
     try:
         if decode:
             result = base64.b64decode(text.encode()).decode(errors="replace")
