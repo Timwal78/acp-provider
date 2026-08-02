@@ -254,8 +254,87 @@ def _verify_robinhood_usdg_tx(tx_hash: str, pay_to: str, min_units: int) -> dict
         "no_matching_usdg_transfer", "robinhood",
     )
 
+def _verify_solana_usdc_tx(tx_hash: str, pay_to: str, min_units: int) -> dict:
+    """SPL USDC transfer to Solana payTo (owner). tx_hash = base58 signature."""
+    sig = (tx_hash or "").strip()
+    if not sig or sig.startswith("0x") or len(sig) < 64 or len(sig) > 128:
+        return {"ok": False, "error": "invalid_solana_sig_format"}
+    sol_pay = (pay_to or SOLANA_PAY_TO or "").strip()
+    if not sol_pay or sol_pay.startswith("0x"):
+        return {"ok": False, "error": "invalid_solana_payTo"}
+    rpc = (os.environ.get("SOLANA_RPC_URL") or "https://api.mainnet-beta.solana.com").strip()
+    body = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "getTransaction",
+        "params": [sig, {"encoding": "jsonParsed", "commitment": "confirmed", "maxSupportedTransactionVersion": 0}],
+    }
+    try:
+        import urllib.request
+        req = urllib.request.Request(
+            rpc,
+            data=json.dumps(body).encode(),
+            headers={"Content-Type": "application/json", "User-Agent": "acp-x402-sol-verify/1.0"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=15) as r:
+            j = json.loads(r.read().decode())
+    except Exception as e:
+        return {"ok": False, "error": f"solana_rpc_{e}"}
+    if j.get("error"):
+        return {"ok": False, "error": f"solana_rpc_{j['error']}"}
+    tx = j.get("result")
+    if not tx:
+        return {"ok": False, "error": "solana_tx_not_found_or_pending"}
+    if (tx.get("meta") or {}).get("err"):
+        return {"ok": False, "error": "solana_tx_failed"}
+    meta = tx.get("meta") or {}
+    pre = meta.get("preTokenBalances") or []
+    post = meta.get("postTokenBalances") or []
+
+    def rows(bal_list):
+        out = []
+        for r in bal_list:
+            if not r or str(r.get("mint")) != USDC_SOLANA_MINT:
+                continue
+            try:
+                amt = int((r.get("uiTokenAmount") or {}).get("amount") or 0)
+            except Exception:
+                amt = 0
+            out.append({"owner": r.get("owner"), "amount": amt, "idx": r.get("accountIndex")})
+        return out
+
+    pre_b, post_b = rows(pre), rows(post)
+    for pb in post_b:
+        if pb.get("owner") != sol_pay:
+            continue
+        before = 0
+        for a in pre_b:
+            if a.get("owner") == sol_pay:
+                before = a["amount"]
+                break
+        delta = pb["amount"] - before
+        if delta >= min_units:
+            return {
+                "ok": True,
+                "from": "",
+                "amount": delta,
+                "asset": USDC_SOLANA_MINT,
+                "chain": "solana",
+            }
+    return {"ok": False, "error": "no_matching_solana_usdc_transfer"}
+
+
 def _verify_sovereign_tx(tx_hash: str, pay_to: str, min_units: int) -> dict:
-    """Base USDC first (CDP money path), then Robinhood USDG."""
+    """Base USDC, Robinhood USDG, or Solana SPL USDC (sig in X-PAYMENT-TX)."""
+    sig = (tx_hash or "").strip()
+    if sig and not sig.startswith("0x"):
+        sol_hit = _verify_solana_usdc_tx(sig, SOLANA_PAY_TO, min_units)
+        if sol_hit.get("ok"):
+            return sol_hit
+        # base58-ish — don't fall through to EVM
+        if len(sig) >= 64 and not all(c in "0123456789abcdefABCDEF" for c in sig):
+            return sol_hit
     base_hit = _verify_base_usdc_tx(tx_hash, pay_to, min_units)
     if base_hit.get("ok"):
         return base_hit
@@ -465,6 +544,29 @@ def _402(requirements: dict, reason: str = "payment_required", query_params: dic
             "rpc": "https://rpc.mainnet.chain.robinhood.com",
             "explorer": "https://robinhoodchain.blockscout.com",
         },
+    }, {
+        "scheme": "exact",
+        "network": SOLANA_CAIP,
+        "amount": _amt,
+        "maxAmountRequired": requirements.get("maxAmountRequired") or _amt,
+        "asset": USDC_SOLANA_MINT,
+        "payTo": SOLANA_PAY_TO,
+        "maxTimeoutSeconds": requirements.get("maxTimeoutSeconds", MAX_TIMEOUT),
+        "resource": requirements.get("resource"),
+        "description": requirements.get("description"),
+        "mimeType": requirements.get("mimeType", "application/json"),
+        "extra": {
+            "name": "USD Coin",
+            "symbol": "USDC",
+            "version": "2",
+            "decimals": 6,
+            "settlement": "sovereign-tx",
+            "paymentHeader": "X-PAYMENT-TX",
+            "chain": "solana-mainnet",
+            "rpc": os.environ.get("SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com"),
+            "explorer": "https://solscan.io",
+            "note": "Pay SPL USDC on Solana to payTo, retry with X-PAYMENT-TX=<base58 sig>",
+        },
     }]
 
     err = (reason or "payment_required").strip()
@@ -646,7 +748,7 @@ def x402_guard(price_usdc: str, description: str, discoverable: bool = True, pat
                     # attach paid receipt when JSON
                     pass
                 chain = v.get("chain") or "base"
-                rail = "sovereign:robinhood-usdg" if chain == "robinhood" else "sovereign:base-usdc"
+                rail = ("sovereign:solana-usdc" if chain == "solana" else "sovereign:robinhood-usdg" if chain == "robinhood" else "sovereign:base-usdc")
                 resp.headers["X-PAYMENT-RESPONSE"] = base64.b64encode(json.dumps({
                     "success": True,
                     "rail": rail,
