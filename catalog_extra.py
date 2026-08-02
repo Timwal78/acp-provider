@@ -682,6 +682,451 @@ def api_token_top_holders_proxy(params: dict | None = None) -> dict:
     return _ok({"timestamp": _now(), "id": cid, "count": len(out), "top_markets": out, "note": "liquidity/markets proxy (not on-chain holders)", "source": "coingecko_tickers"})
 
 
+
+def api_llm_chat(params: dict | None = None) -> dict:
+    """OpenAI-compatible chat completion proxy. Params:
+    { prompt|message?: str, messages?: list|json, model?: str, max_tokens?: int, temperature?: float }
+    Uses LLM_BASE_URL + LLM_API_KEY + LLM_MODEL_ID (or BYOK via headers on HTTP layer).
+    """
+    import os
+    p = params or {}
+    base = (p.get("_llm_base") or os.environ.get("LLM_BASE_URL") or "").rstrip("/")
+    key = p.get("_llm_key") or os.environ.get("LLM_API_KEY") or ""
+    model = (p.get("model") or os.environ.get("LLM_MODEL_ID") or "x-ai-grok-4-5").strip()
+    if not base or not key:
+        return _ok({
+            "timestamp": _now(),
+            "error": "llm_unconfigured",
+            "hint": "Set LLM_BASE_URL + LLM_API_KEY on host, or pass BYOK",
+        })
+    messages = p.get("messages")
+    if isinstance(messages, str):
+        try:
+            messages = json.loads(messages)
+        except Exception:
+            messages = None
+    if not messages:
+        prompt = (p.get("prompt") or p.get("message") or p.get("q") or "").strip()
+        if not prompt:
+            return _ok({"timestamp": _now(), "error": "prompt_required"})
+        messages = [{"role": "user", "content": prompt[:8000]}]
+    try:
+        max_tokens = max(16, min(int(p.get("max_tokens") or 256), 1024))
+    except Exception:
+        max_tokens = 256
+    try:
+        temperature = float(p.get("temperature") if p.get("temperature") is not None else 0.2)
+    except Exception:
+        temperature = 0.2
+    body = json.dumps({
+        "model": model,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+    }).encode()
+    url = base + "/chat/completions"
+    req = urllib.request.Request(
+        url,
+        data=body,
+        method="POST",
+        headers={
+            "User-Agent": UA,
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {key}",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            raw = r.read().decode("utf-8", "replace")
+            data = json.loads(raw)
+    except Exception as e:
+        return _ok({"timestamp": _now(), "error": str(e)[:300], "model": model, "url": url})
+    choice = None
+    try:
+        choice = (data.get("choices") or [{}])[0]
+    except Exception:
+        choice = None
+    content = None
+    if isinstance(choice, dict):
+        msg = choice.get("message") or {}
+        content = msg.get("content") if isinstance(msg, dict) else None
+        if content is None:
+            content = choice.get("text")
+    return _ok({
+        "timestamp": _now(),
+        "model": model,
+        "content": content,
+        "usage": data.get("usage") if isinstance(data, dict) else None,
+        "raw": data if p.get("raw") in (1, "1", True, "true") else None,
+        "source": "openai_compatible_proxy",
+    })
+
+
+def api_web_markdown(params: dict | None = None) -> dict:
+    """Fetch URL and return simplified markdown/text. Params: { url }"""
+    import re, html as htmlmod
+    p = params or {}
+    url = (p.get("url") or p.get("uri") or "").strip()
+    if not url.startswith("http://") and not url.startswith("https://"):
+        return _ok({"timestamp": _now(), "error": "url_required_https"})
+    low = url.lower()
+    if any(x in low for x in ["localhost", "127.0.0.1", "0.0.0.0", "169.254.", "metadata.google"]):
+        return _ok({"timestamp": _now(), "error": "url_blocked"})
+    req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "text/html,application/xhtml+xml,*/*"})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            raw = r.read(200_000)
+            ctype = r.headers.get("Content-Type", "")
+            status = getattr(r, "status", 200)
+    except Exception as e:
+        return _ok({"timestamp": _now(), "error": str(e)[:240], "url": url})
+    text = raw.decode("utf-8", "replace")
+    # crude html -> text
+    text = re.sub(r"(?is)<(script|style|noscript)[^>]*>.*?</\\1>", " ", text)
+    text = re.sub(r"(?is)<!--.*?-->", " ", text)
+    text = re.sub(r"(?i)<br\\s*/?>", "\n", text)
+    text = re.sub(r"(?i)</p>", "\n\n", text)
+    text = re.sub(r"(?i)</h[1-6]>", "\n\n", text)
+    text = re.sub(r"(?i)<h([1-6])[^>]*>", lambda m: "\n" + "#" * int(m.group(1)) + " ", text)
+    text = re.sub(r"(?i)<a[^>]+href=[\"']([^\"']+)[\"'][^>]*>(.*?)</a>", r"[\\2](\\1)", text)
+    text = re.sub(r"(?is)<[^>]+>", " ", text)
+    text = htmlmod.unescape(text)
+    text = re.sub(r"[ \\t]+", " ", text)
+    text = re.sub(r"\\n{3,}", "\n\n", text).strip()
+    return _ok({
+        "timestamp": _now(),
+        "url": url,
+        "status": status,
+        "content_type": ctype,
+        "markdown": text[:20000],
+        "chars": len(text),
+        "source": "sml_web_markdown",
+    })
+
+
+def api_web_search(params: dict | None = None) -> dict:
+    """Keyless web search: Wikipedia OpenSearch + DuckDuckGo instant + optional HTML.
+    Params: { q, limit? }
+    """
+    import re
+    from urllib.parse import quote_plus, unquote, parse_qs, urlparse
+    p = params or {}
+    q = (p.get("q") or p.get("query") or p.get("search") or "").strip()
+    if not q:
+        return _ok({"timestamp": _now(), "error": "q_required"})
+    try:
+        limit = max(1, min(int(p.get("limit") or 8), 15))
+    except Exception:
+        limit = 8
+    results = []
+    sources = []
+
+    # 1) Wikipedia OpenSearch
+    try:
+        wurl = (
+            "https://en.wikipedia.org/w/api.php?action=opensearch&format=json&limit="
+            f"{limit}&search={quote_plus(q)}"
+        )
+        w = _get(wurl, timeout=15)
+        if isinstance(w, list) and len(w) >= 4:
+            titles, descs, links = w[1], w[2], w[3]
+            for i, title in enumerate(titles):
+                results.append({
+                    "title": title,
+                    "url": links[i] if i < len(links) else "",
+                    "snippet": descs[i] if i < len(descs) else "",
+                    "source": "wikipedia",
+                })
+            sources.append("wikipedia_opensearch")
+    except Exception:
+        pass
+
+    # 2) DuckDuckGo instant answer API
+    if len(results) < limit:
+        try:
+            durl = f"https://api.duckduckgo.com/?q={quote_plus(q)}&format=json&no_html=1&skip_disambig=1"
+            d = _get(durl, timeout=15)
+            if isinstance(d, dict) and not d.get("error"):
+                if d.get("AbstractText"):
+                    results.append({
+                        "title": d.get("Heading") or q,
+                        "url": d.get("AbstractURL") or "",
+                        "snippet": d.get("AbstractText"),
+                        "source": "duckduckgo_abstract",
+                    })
+                for t in (d.get("RelatedTopics") or []):
+                    if isinstance(t, dict) and t.get("Text"):
+                        results.append({
+                            "title": (t.get("Text") or "")[:80],
+                            "url": t.get("FirstURL") or "",
+                            "snippet": t.get("Text") or "",
+                            "source": "duckduckgo_related",
+                        })
+                    elif isinstance(t, dict) and t.get("Topics"):
+                        for tt in t.get("Topics") or []:
+                            if isinstance(tt, dict) and tt.get("Text"):
+                                results.append({
+                                    "title": (tt.get("Text") or "")[:80],
+                                    "url": tt.get("FirstURL") or "",
+                                    "snippet": tt.get("Text") or "",
+                                    "source": "duckduckgo_related",
+                                })
+                    if len(results) >= limit:
+                        break
+                sources.append("duckduckgo_api")
+        except Exception:
+            pass
+
+    # 3) HTML scrape fallback
+    if len(results) < 3:
+        try:
+            url = f"https://html.duckduckgo.com/html/?q={quote_plus(q)}"
+            req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "text/html"})
+            with urllib.request.urlopen(req, timeout=20) as r:
+                html = r.read(300_000).decode("utf-8", "replace")
+            for m in re.finditer(r'class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>', html, re.I | re.S):
+                href, title = m.group(1), re.sub(r"<[^>]+>", "", m.group(2)).strip()
+                if "uddg=" in href:
+                    try:
+                        qs = parse_qs(urlparse(href).query)
+                        href = unquote(qs.get("uddg", [href])[0])
+                    except Exception:
+                        pass
+                results.append({"title": title, "url": href, "snippet": "", "source": "duckduckgo_html"})
+                if len(results) >= limit:
+                    break
+            sources.append("duckduckgo_html")
+        except Exception:
+            pass
+
+    # dedupe by url/title
+    seen = set()
+    out = []
+    for r in results:
+        key = (r.get("url") or "") + "|" + (r.get("title") or "")
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(r)
+        if len(out) >= limit:
+            break
+    return _ok({
+        "timestamp": _now(),
+        "q": q,
+        "count": len(out),
+        "results": out,
+        "sources": sources,
+        "source": "+".join(sources) or "web_search",
+    })
+
+
+def api_eth_rpc(params: dict | None = None) -> dict:
+    """Ethereum JSON-RPC helper (public RPC). Params: { method?, params?, address?, block? }"""
+    p = params or {}
+    method = (p.get("method") or "eth_blockNumber").strip()
+    allowed = {
+        "eth_blockNumber", "eth_chainId", "eth_gasPrice", "eth_getBalance",
+        "eth_getCode", "eth_call", "eth_getTransactionByHash", "eth_getTransactionReceipt",
+        "eth_getBlockByNumber", "net_version",
+    }
+    if method not in allowed:
+        return _ok({"timestamp": _now(), "error": "method_not_allowed", "allowed": sorted(allowed)})
+    rpc_params = p.get("params")
+    if isinstance(rpc_params, str):
+        try:
+            rpc_params = json.loads(rpc_params)
+        except Exception:
+            rpc_params = None
+    if rpc_params is None:
+        if method == "eth_getBalance":
+            addr = (p.get("address") or p.get("wallet") or "").strip()
+            block = p.get("block") or "latest"
+            if not addr.startswith("0x"):
+                return _ok({"timestamp": _now(), "error": "address_required"})
+            rpc_params = [addr, block]
+        elif method == "eth_getBlockByNumber":
+            block = p.get("block") or "latest"
+            rpc_params = [block, False]
+        elif method in ("eth_getTransactionByHash", "eth_getTransactionReceipt"):
+            h = (p.get("hash") or p.get("tx") or "").strip()
+            if not h.startswith("0x"):
+                return _ok({"timestamp": _now(), "error": "hash_required"})
+            rpc_params = [h]
+        else:
+            rpc_params = []
+    body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": rpc_params}).encode()
+    rpcs = [
+        "https://ethereum.publicnode.com",
+        "https://rpc.ankr.com/eth",
+        "https://cloudflare-eth.com",
+    ]
+    last_err = None
+    for rpc in rpcs:
+        req = urllib.request.Request(
+            rpc, data=body, method="POST",
+            headers={"User-Agent": UA, "Content-Type": "application/json", "Accept": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=20) as r:
+                data = json.loads(r.read().decode())
+            return _ok({"timestamp": _now(), "chain": "ethereum", "rpc": rpc, "method": method, "result": data.get("result"), "error": data.get("error"), "source": "eth_json_rpc"})
+        except Exception as e:
+            last_err = str(e)[:200]
+    return _ok({"timestamp": _now(), "error": last_err or "rpc_failed", "method": method})
+
+
+def api_base_rpc(params: dict | None = None) -> dict:
+    """Base mainnet JSON-RPC helper. Params: { method?, params?, address?, block? }"""
+    p = params or {}
+    method = (p.get("method") or "eth_blockNumber").strip()
+    allowed = {
+        "eth_blockNumber", "eth_chainId", "eth_gasPrice", "eth_getBalance",
+        "eth_getCode", "eth_call", "eth_getTransactionByHash", "eth_getTransactionReceipt",
+        "eth_getBlockByNumber", "net_version",
+    }
+    if method not in allowed:
+        return _ok({"timestamp": _now(), "error": "method_not_allowed", "allowed": sorted(allowed)})
+    rpc_params = p.get("params")
+    if isinstance(rpc_params, str):
+        try:
+            rpc_params = json.loads(rpc_params)
+        except Exception:
+            rpc_params = None
+    if rpc_params is None:
+        if method == "eth_getBalance":
+            addr = (p.get("address") or p.get("wallet") or "").strip()
+            block = p.get("block") or "latest"
+            if not addr.startswith("0x"):
+                return _ok({"timestamp": _now(), "error": "address_required"})
+            rpc_params = [addr, block]
+        elif method == "eth_getBlockByNumber":
+            block = p.get("block") or "latest"
+            rpc_params = [block, False]
+        elif method in ("eth_getTransactionByHash", "eth_getTransactionReceipt"):
+            h = (p.get("hash") or p.get("tx") or "").strip()
+            if not h.startswith("0x"):
+                return _ok({"timestamp": _now(), "error": "hash_required"})
+            rpc_params = [h]
+        else:
+            rpc_params = []
+    body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": rpc_params}).encode()
+    rpcs = [
+        "https://mainnet.base.org",
+        "https://base-rpc.publicnode.com",
+        "https://base.llamarpc.com",
+    ]
+    last_err = None
+    for rpc in rpcs:
+        req = urllib.request.Request(
+            rpc, data=body, method="POST",
+            headers={"User-Agent": UA, "Content-Type": "application/json", "Accept": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=20) as r:
+                data = json.loads(r.read().decode())
+            return _ok({"timestamp": _now(), "chain": "base", "chain_id": 8453, "rpc": rpc, "method": method, "result": data.get("result"), "error": data.get("error"), "source": "base_json_rpc"})
+        except Exception as e:
+            last_err = str(e)[:200]
+    return _ok({"timestamp": _now(), "error": last_err or "rpc_failed", "method": method})
+
+
+def api_domain_enrich(params: dict | None = None) -> dict:
+    """Cheap domain enrichment: DNS/RDAP + optional IP geo. Params: { domain }"""
+    import re, socket
+    p = params or {}
+    domain = (p.get("domain") or p.get("url") or p.get("q") or "").strip().lower()
+    domain = re.sub(r"^https?://", "", domain).split("/")[0].split(":")[0]
+    if not domain or "." not in domain:
+        return _ok({"timestamp": _now(), "error": "domain_required"})
+    out = {"domain": domain, "timestamp": _now(), "source": "sml_domain_enrich"}
+    # DNS A
+    try:
+        ips = sorted({ai[4][0] for ai in socket.getaddrinfo(domain, None)})
+        out["ips"] = ips[:10]
+    except Exception as e:
+        out["ips"] = []
+        out["dns_error"] = str(e)[:120]
+    # RDAP
+    try:
+        rdap = _get(f"https://rdap.org/domain/{domain}", timeout=15)
+        if isinstance(rdap, dict) and not rdap.get("error"):
+            out["rdap"] = {
+                "handle": rdap.get("handle"),
+                "ldhName": rdap.get("ldhName"),
+                "status": rdap.get("status"),
+                "nameservers": [n.get("ldhName") for n in (rdap.get("nameservers") or []) if isinstance(n, dict)][:10],
+                "events": rdap.get("events"),
+            }
+        else:
+            out["rdap"] = rdap
+    except Exception as e:
+        out["rdap_error"] = str(e)[:120]
+    # IP geo on first IP
+    if out.get("ips"):
+        geo = _get(f"http://ip-api.com/json/{out['ips'][0]}?fields=status,country,regionName,city,isp,org,as,query", timeout=10)
+        out["geo"] = geo
+    return _ok(out)
+
+
+def api_news_headlines(params: dict | None = None) -> dict:
+    """Google News RSS headlines. Params: { q?, hl?, gl?, ceid?, limit? }"""
+    import re
+    from urllib.parse import quote_plus
+    import xml.etree.ElementTree as ET
+    p = params or {}
+    q = (p.get("q") or p.get("query") or "crypto OR bitcoin OR AI agents").strip()
+    hl = (p.get("hl") or "en").strip()
+    gl = (p.get("gl") or "US").strip()
+    ceid = (p.get("ceid") or f"{gl}:{hl}").strip()
+    try:
+        limit = max(1, min(int(p.get("limit") or 15), 40))
+    except Exception:
+        limit = 15
+    url = f"https://news.google.com/rss/search?q={quote_plus(q)}&hl={quote_plus(hl)}&gl={quote_plus(gl)}&ceid={quote_plus(ceid)}"
+    req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/rss+xml,application/xml,text/xml,*/*"})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            xml = r.read()
+    except Exception as e:
+        return _ok({"timestamp": _now(), "error": str(e)[:240], "q": q})
+    items = []
+    try:
+        root = ET.fromstring(xml)
+        for item in root.findall(".//item")[:limit]:
+            title = (item.findtext("title") or "").strip()
+            link = (item.findtext("link") or "").strip()
+            pub = (item.findtext("pubDate") or "").strip()
+            source = item.find("source")
+            src = (source.text if source is not None else "") or ""
+            items.append({"title": title, "url": link, "published": pub, "source": src})
+    except Exception as e:
+        return _ok({"timestamp": _now(), "error": f"rss_parse:{e}"[:200], "q": q})
+    return _ok({"timestamp": _now(), "q": q, "count": len(items), "headlines": items, "source": "google_news_rss"})
+
+
+def api_social_search(params: dict | None = None) -> dict:
+    """Public web social/news search (not official X API). Params: { q, limit? }
+    Uses DuckDuckGo news-biased query for agent social pulse when Twitter firehose unavailable.
+    """
+    p = dict(params or {})
+    q = (p.get("q") or p.get("query") or "").strip()
+    if not q:
+        return _ok({"timestamp": _now(), "error": "q_required"})
+    # bias toward recent social chatter via site filters + news
+    p["q"] = f"{q} (site:x.com OR site:twitter.com OR site:reddit.com OR site:nitter.net)"
+    base = api_web_search(p)
+    # unwrap _ok envelope
+    try:
+        inner = json.loads(base.get("result") or "{}")
+    except Exception:
+        inner = {"error": "decode_failed"}
+    inner["note"] = "public_web_social_proxy_not_official_x_api"
+    inner["product"] = "social_search"
+    return _ok(inner)
+
+
+
 # Registry consumed by provider.py
 EXTRA_ENDPOINTS = {
     "crypto_price": api_crypto_price,
@@ -717,6 +1162,14 @@ EXTRA_ENDPOINTS = {
     "stablecoin_watch": api_stablecoin_watch,
     "web_fetch": api_web_fetch,
     "token_top_markets": api_token_top_holders_proxy,
+    "llm_chat": api_llm_chat,
+    "web_markdown": api_web_markdown,
+    "web_search": api_web_search,
+    "eth_rpc": api_eth_rpc,
+    "base_rpc": api_base_rpc,
+    "domain_enrich": api_domain_enrich,
+    "news_headlines": api_news_headlines,
+    "social_search": api_social_search,
 }
 
 EXTRA_PRICES_USD = {
@@ -753,6 +1206,14 @@ EXTRA_PRICES_USD = {
     "stablecoin_watch": "0.001",
     "web_fetch": "0.001",
     "token_top_markets": "0.001",
+    "llm_chat": "0.001",
+    "web_markdown": "0.001",
+    "web_search": "0.001",
+    "eth_rpc": "0.001",
+    "base_rpc": "0.001",
+    "domain_enrich": "0.001",
+    "news_headlines": "0.001",
+    "social_search": "0.001",
 }
 
 EXTRA_ACP_DEFAULTS = {k: 0.001 for k in EXTRA_ENDPOINTS}
