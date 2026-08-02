@@ -1127,6 +1127,466 @@ def api_social_search(params: dict | None = None) -> dict:
 
 
 
+
+
+# ─── DATA CONVERSION ──────────────────────────────────────────────────────────
+
+def api_json_validate(params: dict | None = None) -> dict:
+    import json as _json
+    p = params or {}
+    raw = p.get("json") or p.get("data") or "{}"
+    try:
+        parsed = _json.loads(raw)
+        return _ok({"valid": True, "type": type(parsed).__name__, "keys": list(parsed.keys()) if isinstance(parsed, dict) else len(parsed) if isinstance(parsed, list) else None, "source": "json_validate"})
+    except Exception as e:
+        return _ok({"valid": False, "error": str(e), "source": "json_validate"})
+
+def api_json_to_csv(params: dict | None = None) -> dict:
+    import json as _json, io, csv as _csv
+    p = params or {}
+    raw = p.get("json") or p.get("data") or "[]"
+    try:
+        data = _json.loads(raw)
+        if not isinstance(data, list): data = [data]
+        buf = io.StringIO()
+        if data:
+            w = _csv.DictWriter(buf, fieldnames=list(data[0].keys()))
+            w.writeheader(); w.writerows(data)
+        return _ok({"csv": buf.getvalue(), "rows": len(data), "source": "json_to_csv"})
+    except Exception as e:
+        return _ok({"error": str(e), "source": "json_to_csv"})
+
+def api_csv_to_json(params: dict | None = None) -> dict:
+    import io, csv as _csv
+    p = params or {}
+    raw = p.get("csv") or p.get("data") or ""
+    try:
+        reader = _csv.DictReader(io.StringIO(raw))
+        rows = list(reader)
+        return _ok({"data": rows, "rows": len(rows), "source": "csv_to_json"})
+    except Exception as e:
+        return _ok({"error": str(e), "source": "csv_to_json"})
+
+def api_yaml_to_json(params: dict | None = None) -> dict:
+    import json as _json
+    p = params or {}
+    raw = p.get("yaml") or p.get("data") or ""
+    try:
+        import yaml
+        return _ok({"data": yaml.safe_load(raw), "source": "yaml_to_json"})
+    except ImportError:
+        # manual simple yaml parse for flat key: value
+        out = {}
+        for line in raw.splitlines():
+            if ":" in line:
+                k, _, v = line.partition(":")
+                out[k.strip()] = v.strip()
+        return _ok({"data": out, "source": "yaml_to_json_basic"})
+    except Exception as e:
+        return _ok({"error": str(e), "source": "yaml_to_json"})
+
+def api_json_to_yaml(params: dict | None = None) -> dict:
+    import json as _json
+    p = params or {}
+    raw = p.get("json") or p.get("data") or "{}"
+    try:
+        data = _json.loads(raw)
+        # simple yaml serialiser
+        def to_yaml(obj, indent=0):
+            pad = "  " * indent
+            nl = "\n"
+            if isinstance(obj, dict):
+                return nl.join(f"{pad}{k}: {to_yaml(v, indent+1) if isinstance(v,(dict,list)) else v}" for k,v in obj.items())
+            elif isinstance(obj, list):
+                return nl.join(f"{pad}- {item}" for item in obj)
+            return str(obj)
+        return _ok({"yaml": to_yaml(data), "source": "json_to_yaml"})
+    except Exception as e:
+        return _ok({"error": str(e), "source": "json_to_yaml"})
+
+def api_xml_to_json(params: dict | None = None) -> dict:
+    import json as _json, xml.etree.ElementTree as ET
+    p = params or {}
+    raw = p.get("xml") or p.get("data") or "<root/>"
+    try:
+        def elem_to_dict(el):
+            d = dict(el.attrib)
+            children = list(el)
+            if children:
+                child_dict = {}
+                for ch in children:
+                    cd = elem_to_dict(ch)
+                    if ch.tag in child_dict:
+                        if not isinstance(child_dict[ch.tag], list): child_dict[ch.tag] = [child_dict[ch.tag]]
+                        child_dict[ch.tag].append(cd)
+                    else:
+                        child_dict[ch.tag] = cd
+                d.update(child_dict)
+            if el.text and el.text.strip(): d["_text"] = el.text.strip()
+            return d
+        root = ET.fromstring(raw)
+        return _ok({"data": {root.tag: elem_to_dict(root)}, "source": "xml_to_json"})
+    except Exception as e:
+        return _ok({"error": str(e), "source": "xml_to_json"})
+
+
+# ─── TEXT PROCESSING ──────────────────────────────────────────────────────────
+
+def api_text_slugify(params: dict | None = None) -> dict:
+    import re
+    p = params or {}
+    text = p.get("text") or p.get("q") or ""
+    slug = re.sub(r"[^a-z0-9]+", "-", text.lower().strip()).strip("-")
+    return _ok({"slug": slug, "source": "text_slugify"})
+
+def api_text_case_convert(params: dict | None = None) -> dict:
+    p = params or {}
+    text = p.get("text") or ""
+    case = (p.get("case") or "upper").lower()
+    result = text.upper() if case == "upper" else text.lower() if case == "lower" else text.title() if case == "title" else text.swapcase()
+    return _ok({"result": result, "case": case, "source": "text_case_convert"})
+
+def api_text_stats(params: dict | None = None) -> dict:
+    p = params or {}
+    text = p.get("text") or ""
+    words = text.split()
+    return _ok({"chars": len(text), "words": len(words), "lines": len(text.splitlines()), "sentences": text.count(".") + text.count("!") + text.count("?"), "source": "text_stats"})
+
+def api_keyword_extract(params: dict | None = None) -> dict:
+    import re
+    from collections import Counter
+    p = params or {}
+    text = p.get("text") or ""
+    limit = int(p.get("limit") or 10)
+    stop = {"the","a","an","and","or","but","in","on","at","to","for","of","with","by","is","are","was","were","be","been","has","have","had","it","its","this","that","as","not","from","he","she","they","we","you","i"}
+    words = [w.lower() for w in re.findall(r"[a-zA-Z]{3,}", text) if w.lower() not in stop]
+    top = Counter(words).most_common(limit)
+    return _ok({"keywords": [{"word": w, "count": c} for w, c in top], "source": "keyword_extract"})
+
+def api_text_diff(params: dict | None = None) -> dict:
+    import difflib
+    p = params or {}
+    a = (p.get("a") or p.get("text1") or "").splitlines(keepends=True)
+    b = (p.get("b") or p.get("text2") or "").splitlines(keepends=True)
+    diff = list(difflib.unified_diff(a, b, lineterm=""))
+    return _ok({"diff": "".join(diff), "lines_changed": len([l for l in diff if l.startswith(("+","-")) and not l.startswith(("+++","---"))]), "source": "text_diff"})
+
+def api_regex_test(params: dict | None = None) -> dict:
+    import re
+    p = params or {}
+    pattern = p.get("pattern") or p.get("regex") or ""
+    text = p.get("text") or ""
+    try:
+        matches = re.findall(pattern, text)
+        return _ok({"matches": matches[:50], "count": len(matches), "match": bool(matches), "source": "regex_test"})
+    except re.error as e:
+        return _ok({"error": str(e), "match": False, "source": "regex_test"})
+
+
+# ─── VALIDATION & PARSING ─────────────────────────────────────────────────────
+
+def api_email_validate(params: dict | None = None) -> dict:
+    import re
+    p = params or {}
+    email = p.get("email") or p.get("q") or ""
+    pattern = r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$"
+    valid = bool(re.match(pattern, email))
+    parts = email.split("@") if "@" in email else [email, ""]
+    return _ok({"email": email, "valid": valid, "local": parts[0], "domain": parts[1] if len(parts) > 1 else "", "source": "email_validate"})
+
+def api_url_parse(params: dict | None = None) -> dict:
+    from urllib.parse import urlparse, parse_qs
+    p = params or {}
+    url = p.get("url") or p.get("q") or ""
+    try:
+        r = urlparse(url)
+        return _ok({"scheme": r.scheme, "host": r.netloc, "path": r.path, "query": parse_qs(r.query), "fragment": r.fragment, "valid": bool(r.scheme and r.netloc), "source": "url_parse"})
+    except Exception as e:
+        return _ok({"error": str(e), "source": "url_parse"})
+
+def api_ip_info(params: dict | None = None) -> dict:
+    p = params or {}
+    ip = p.get("ip") or p.get("q") or "8.8.8.8"
+    try:
+        r = urllib.request.urlopen(urllib.request.Request(f"http://ip-api.com/json/{ip}?fields=status,country,regionName,city,isp,org,as,query,lat,lon", headers={"User-Agent": UA}), timeout=12)
+        data = json.loads(r.read())
+        return _ok({**data, "source": "ip_info"})
+    except Exception as e:
+        return _ok({"ip": ip, "error": str(e), "source": "ip_info"})
+
+def api_useragent_parse(params: dict | None = None) -> dict:
+    import re
+    p = params or {}
+    ua = p.get("ua") or p.get("user_agent") or p.get("q") or ""
+    mobile = bool(re.search(r"Mobile|Android|iPhone|iPad", ua, re.I))
+    bot = bool(re.search(r"bot|crawler|spider|scraper", ua, re.I))
+    browser = "Chrome" if "Chrome" in ua else "Firefox" if "Firefox" in ua else "Safari" if "Safari" in ua else "Edge" if "Edge" in ua else "Other"
+    os_name = "Windows" if "Windows" in ua else "Mac" if "Mac OS" in ua else "Linux" if "Linux" in ua else "iOS" if "iPhone|iPad" in ua else "Android" if "Android" in ua else "Other"
+    return _ok({"ua": ua[:200], "browser": browser, "os": os_name, "mobile": mobile, "bot": bot, "source": "useragent_parse"})
+
+def api_semver_compare(params: dict | None = None) -> dict:
+    p = params or {}
+    a = p.get("a") or p.get("v1") or "0.0.0"
+    b = p.get("b") or p.get("v2") or "0.0.0"
+    def parse(v):
+        parts = v.lstrip("v").split(".")
+        return tuple(int(x) for x in parts[:3]) if len(parts) >= 3 else (0,0,0)
+    pa, pb = parse(a), parse(b)
+    result = -1 if pa < pb else 1 if pa > pb else 0
+    return _ok({"a": a, "b": b, "result": result, "comparison": f"{a} {'<' if result<0 else '>' if result>0 else '='} {b}", "newer": b if result < 0 else a, "source": "semver_compare"})
+
+
+# ─── ENCODING & CRYPTO ────────────────────────────────────────────────────────
+
+def api_hash_compute(params: dict | None = None) -> dict:
+    import hashlib
+    p = params or {}
+    text = p.get("text") or p.get("data") or ""
+    algo = p.get("algo") or "sha256"
+    try:
+        h = hashlib.new(algo, text.encode()).hexdigest()
+        return _ok({"hash": h, "algo": algo, "input_len": len(text), "source": "hash_compute"})
+    except Exception as e:
+        return _ok({"error": str(e), "source": "hash_compute"})
+
+def api_hmac_compute(params: dict | None = None) -> dict:
+    import hmac, hashlib
+    p = params or {}
+    text = p.get("text") or p.get("data") or ""
+    key = p.get("key") or p.get("secret") or ""
+    algo = p.get("algo") or "sha256"
+    try:
+        h = hmac.new(key.encode(), text.encode(), getattr(hashlib, algo, hashlib.sha256)).hexdigest()
+        return _ok({"hmac": h, "algo": algo, "source": "hmac_compute"})
+    except Exception as e:
+        return _ok({"error": str(e), "source": "hmac_compute"})
+
+def api_base64_encode(params: dict | None = None) -> dict:
+    import base64
+    p = params or {}
+    text = p.get("text") or p.get("data") or ""
+    decode = str(p.get("decode") or "false").lower() == "true"
+    try:
+        if decode:
+            result = base64.b64decode(text.encode()).decode(errors="replace")
+        else:
+            result = base64.b64encode(text.encode()).decode()
+        return _ok({"result": result, "operation": "decode" if decode else "encode", "source": "base64_encode"})
+    except Exception as e:
+        return _ok({"error": str(e), "source": "base64_encode"})
+
+def api_hex_convert(params: dict | None = None) -> dict:
+    p = params or {}
+    text = p.get("text") or p.get("data") or ""
+    decode = str(p.get("decode") or "false").lower() == "true"
+    try:
+        if decode:
+            result = bytes.fromhex(text.strip()).decode(errors="replace")
+        else:
+            result = text.encode().hex()
+        return _ok({"result": result, "operation": "decode" if decode else "encode", "source": "hex_convert"})
+    except Exception as e:
+        return _ok({"error": str(e), "source": "hex_convert"})
+
+def api_jwt_decode(params: dict | None = None) -> dict:
+    import base64, json as _json
+    p = params or {}
+    token = p.get("token") or p.get("jwt") or ""
+    try:
+        parts = token.split(".")
+        def decode_part(s):
+            s += "=" * (-len(s) % 4)
+            return _json.loads(base64.b64decode(s.replace("-", "+").replace("_", "/")))
+        header = decode_part(parts[0]) if len(parts) > 0 else {}
+        payload = decode_part(parts[1]) if len(parts) > 1 else {}
+        return _ok({"header": header, "payload": payload, "parts": len(parts), "source": "jwt_decode"})
+    except Exception as e:
+        return _ok({"error": str(e), "source": "jwt_decode"})
+
+
+# ─── MATH & FINANCE ───────────────────────────────────────────────────────────
+
+def api_calculator(params: dict | None = None) -> dict:
+    import ast, operator
+    p = params or {}
+    expr = p.get("expr") or p.get("expression") or p.get("q") or "0"
+    ops = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul, ast.Div: operator.truediv, ast.Pow: operator.pow, ast.USub: operator.neg}
+    def safe_eval(node):
+        if isinstance(node, ast.Constant): return node.value
+        if isinstance(node, ast.BinOp): return ops[type(node.op)](safe_eval(node.left), safe_eval(node.right))
+        if isinstance(node, ast.UnaryOp): return ops[type(node.op)](safe_eval(node.operand))
+        raise ValueError(f"Unsupported: {type(node)}")
+    try:
+        tree = ast.parse(expr, mode="eval")
+        result = safe_eval(tree.body)
+        return _ok({"expr": expr, "result": result, "source": "calculator"})
+    except Exception as e:
+        return _ok({"expr": expr, "error": str(e), "source": "calculator"})
+
+def api_statistics(params: dict | None = None) -> dict:
+    import statistics as _stats
+    p = params or {}
+    raw = p.get("data") or p.get("numbers") or ""
+    try:
+        import json as _json
+        nums = _json.loads(raw) if raw.strip().startswith("[") else [float(x.strip()) for x in raw.split(",") if x.strip()]
+        return _ok({"count": len(nums), "mean": _stats.mean(nums), "median": _stats.median(nums), "stdev": _stats.stdev(nums) if len(nums) > 1 else 0, "min": min(nums), "max": max(nums), "source": "statistics"})
+    except Exception as e:
+        return _ok({"error": str(e), "source": "statistics"})
+
+def api_unit_convert(params: dict | None = None) -> dict:
+    p = params or {}
+    value = float(p.get("value") or 1)
+    from_unit = (p.get("from") or "").lower()
+    to_unit = (p.get("to") or "").lower()
+    conversions = {
+        ("km","miles"): lambda v: v * 0.621371, ("miles","km"): lambda v: v * 1.60934,
+        ("kg","lbs"): lambda v: v * 2.20462, ("lbs","kg"): lambda v: v / 2.20462,
+        ("c","f"): lambda v: v * 9/5 + 32, ("f","c"): lambda v: (v - 32) * 5/9,
+        ("m","ft"): lambda v: v * 3.28084, ("ft","m"): lambda v: v / 3.28084,
+        ("usd","eur"): lambda v: v * 0.92, ("eur","usd"): lambda v: v / 0.92,
+        ("gb","mb"): lambda v: v * 1024, ("mb","gb"): lambda v: v / 1024,
+    }
+    fn = conversions.get((from_unit, to_unit))
+    if fn:
+        return _ok({"value": value, "from": from_unit, "to": to_unit, "result": round(fn(value), 6), "source": "unit_convert"})
+    return _ok({"error": f"Unknown conversion {from_unit}→{to_unit}", "supported": list(conversions.keys()), "source": "unit_convert"})
+
+def api_percentage(params: dict | None = None) -> dict:
+    p = params or {}
+    try:
+        part = float(p.get("part") or p.get("value") or 0)
+        whole = float(p.get("whole") or p.get("total") or 100)
+        pct = round((part / whole) * 100, 4) if whole else 0
+        return _ok({"part": part, "whole": whole, "percentage": pct, "source": "percentage"})
+    except Exception as e:
+        return _ok({"error": str(e), "source": "percentage"})
+
+def api_number_format(params: dict | None = None) -> dict:
+    p = params or {}
+    try:
+        num = float(p.get("number") or p.get("n") or 0)
+        decimals = int(p.get("decimals") or 2)
+        formatted = f"{num:,.{decimals}f}"
+        return _ok({"number": num, "formatted": formatted, "scientific": f"{num:.{decimals}e}", "source": "number_format"})
+    except Exception as e:
+        return _ok({"error": str(e), "source": "number_format"})
+
+
+# ─── NETWORK & DOMAINS ────────────────────────────────────────────────────────
+
+def api_http_check(params: dict | None = None) -> dict:
+    import time
+    p = params or {}
+    url = p.get("url") or p.get("q") or "https://example.com"
+    start = time.time()
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": UA}, method="HEAD")
+        r = urllib.request.urlopen(req, timeout=15)
+        ms = round((time.time() - start) * 1000)
+        return _ok({"url": url, "status": r.status, "ok": r.status < 400, "latency_ms": ms, "headers": dict(list(r.headers.items())[:8]), "source": "http_check"})
+    except urllib.error.HTTPError as e:
+        return _ok({"url": url, "status": e.code, "ok": False, "latency_ms": round((time.time()-start)*1000), "source": "http_check"})
+    except Exception as e:
+        return _ok({"url": url, "status": 0, "ok": False, "error": str(e)[:200], "source": "http_check"})
+
+def api_tls_cert(params: dict | None = None) -> dict:
+    import ssl, socket
+    p = params or {}
+    host = (p.get("host") or p.get("domain") or p.get("url") or "example.com").replace("https://","").replace("http://","").split("/")[0]
+    port = int(p.get("port") or 443)
+    try:
+        ctx = ssl.create_default_context()
+        with ctx.wrap_socket(socket.socket(), server_hostname=host) as s:
+            s.settimeout(12)
+            s.connect((host, port))
+            cert = s.getpeercert()
+        subj = {k: v for tup in cert.get("subject", []) for k, v in tup}
+        issuer = {k: v for tup in cert.get("issuer", []) for k, v in tup}
+        return _ok({"host": host, "subject": subj, "issuer": issuer, "expires": cert.get("notAfter"), "source": "tls_cert"})
+    except Exception as e:
+        return _ok({"host": host, "error": str(e)[:200], "source": "tls_cert"})
+
+def api_robots_check(params: dict | None = None) -> dict:
+    p = params or {}
+    url = p.get("url") or p.get("domain") or "https://example.com"
+    if not url.startswith("http"): url = "https://" + url
+    robots_url = url.rstrip("/") + "/robots.txt"
+    try:
+        r = urllib.request.urlopen(urllib.request.Request(robots_url, headers={"User-Agent": UA}), timeout=15)
+        content = r.read().decode(errors="ignore")[:3000]
+        lines = [l for l in content.splitlines() if l.strip() and not l.startswith("#")]
+        return _ok({"url": robots_url, "status": r.status, "content": content, "rules": len(lines), "source": "robots_check"})
+    except Exception as e:
+        return _ok({"url": robots_url, "error": str(e)[:200], "source": "robots_check"})
+
+def api_sitemap_reader(params: dict | None = None) -> dict:
+    import xml.etree.ElementTree as ET
+    p = params or {}
+    url = p.get("url") or p.get("domain") or "https://example.com"
+    if not url.startswith("http"): url = "https://" + url
+    sitemap_url = url.rstrip("/") + "/sitemap.xml"
+    try:
+        r = urllib.request.urlopen(urllib.request.Request(sitemap_url, headers={"User-Agent": UA}), timeout=15)
+        content = r.read().decode(errors="ignore")
+        root = ET.fromstring(content)
+        ns = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
+        urls = [u.text for u in root.findall(".//sm:loc", ns) if u.text][:50]
+        return _ok({"url": sitemap_url, "count": len(urls), "urls": urls, "source": "sitemap_reader"})
+    except Exception as e:
+        return _ok({"url": sitemap_url, "error": str(e)[:200], "source": "sitemap_reader"})
+
+def api_whois_rdap(params: dict | None = None) -> dict:
+    p = params or {}
+    domain = (p.get("domain") or p.get("q") or "example.com").replace("https://","").replace("http://","").split("/")[0]
+    try:
+        r = urllib.request.urlopen(urllib.request.Request(f"https://rdap.org/domain/{domain}", headers={"User-Agent": UA, "Accept": "application/json"}), timeout=15)
+        data = json.loads(r.read())
+        return _ok({"domain": domain, "status": data.get("status"), "registrar": next((e.get("fn") or e.get("formattedName","") for e in data.get("entities",[]) if "registrar" in e.get("roles",[])), None), "created": next((e.get("value") for e in data.get("events",[]) if e.get("eventAction")=="registration"), None), "expires": next((e.get("value") for e in data.get("events",[]) if e.get("eventAction")=="expiration"), None), "source": "whois_rdap"})
+    except Exception as e:
+        return _ok({"domain": domain, "error": str(e)[:200], "source": "whois_rdap"})
+
+
+# ─── PAYMENTS & X402 UTILS ────────────────────────────────────────────────────
+
+def api_x402_market_pulse(params: dict | None = None) -> dict:
+    """Live x402 market intel: top sellers, categories, price floor."""
+    try:
+        r = urllib.request.urlopen(urllib.request.Request("https://agent402.tools/api/index/stats", headers={"User-Agent": UA, "Accept": "application/json"}), timeout=15)
+        data = json.loads(r.read())
+        return _ok({**data, "source": "x402_market_pulse"})
+    except Exception as e:
+        return _ok({"price_floor_usdc": 0.001, "top_categories": ["web","crypto","rpc","llm","data"], "note": "agent402 stats unavailable", "error": str(e)[:100], "source": "x402_market_pulse"})
+
+def api_usdc_balance(params: dict | None = None) -> dict:
+    """USDC balance for any Base address."""
+    p = params or {}
+    addr = p.get("address") or p.get("wallet") or p.get("q") or "0x0000000000000000000000000000000000000000"
+    USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+    try:
+        data_field = "0x70a08231000000000000000000000000" + addr[2:].lower().zfill(40)
+        body = json.dumps({"jsonrpc":"2.0","id":1,"method":"eth_call","params":[{"to":USDC,"data":data_field},"latest"]}).encode()
+        r = json.loads(urllib.request.urlopen(urllib.request.Request("https://mainnet.base.org", data=body, headers={"Content-Type":"application/json","User-Agent":UA}), timeout=12).read())
+        bal = int(r["result"], 16) / 1e6
+        return _ok({"address": addr, "usdc_balance": bal, "network": "base", "source": "usdc_balance"})
+    except Exception as e:
+        return _ok({"address": addr, "error": str(e)[:200], "source": "usdc_balance"})
+
+def api_tx_status(params: dict | None = None) -> dict:
+    """Check Base transaction status by hash."""
+    p = params or {}
+    tx = p.get("tx") or p.get("hash") or p.get("transaction_hash") or ""
+    try:
+        body = json.dumps({"jsonrpc":"2.0","id":1,"method":"eth_getTransactionReceipt","params":[tx]}).encode()
+        r = json.loads(urllib.request.urlopen(urllib.request.Request("https://mainnet.base.org", data=body, headers={"Content-Type":"application/json","User-Agent":UA}), timeout=12).read())
+        rec = r.get("result")
+        if not rec:
+            return _ok({"tx": tx, "status": "pending_or_not_found", "source": "tx_status"})
+        return _ok({"tx": tx, "status": "success" if rec.get("status")=="0x1" else "failed", "block": int(rec.get("blockNumber","0x0"),16), "gas_used": int(rec.get("gasUsed","0x0"),16), "source": "tx_status"})
+    except Exception as e:
+        return _ok({"tx": tx, "error": str(e)[:200], "source": "tx_status"})
+
+
 # Registry consumed by provider.py
 EXTRA_ENDPOINTS = {
     "crypto_price": api_crypto_price,
@@ -1170,6 +1630,48 @@ EXTRA_ENDPOINTS = {
     "domain_enrich": api_domain_enrich,
     "news_headlines": api_news_headlines,
     "social_search": api_social_search,
+    # --- Data conversion ---
+    "json_validate": api_json_validate,
+    "json_to_csv": api_json_to_csv,
+    "csv_to_json": api_csv_to_json,
+    "yaml_to_json": api_yaml_to_json,
+    "json_to_yaml": api_json_to_yaml,
+    "xml_to_json": api_xml_to_json,
+    # --- Text processing ---
+    "text_slugify": api_text_slugify,
+    "text_case_convert": api_text_case_convert,
+    "text_stats": api_text_stats,
+    "keyword_extract": api_keyword_extract,
+    "text_diff": api_text_diff,
+    "regex_test": api_regex_test,
+    # --- Validation & parsing ---
+    "email_validate": api_email_validate,
+    "url_parse": api_url_parse,
+    "ip_info": api_ip_info,
+    "useragent_parse": api_useragent_parse,
+    "semver_compare": api_semver_compare,
+    # --- Encoding & crypto ---
+    "hash_compute": api_hash_compute,
+    "hmac_compute": api_hmac_compute,
+    "base64_encode": api_base64_encode,
+    "hex_convert": api_hex_convert,
+    "jwt_decode": api_jwt_decode,
+    # --- Math & finance ---
+    "calculator": api_calculator,
+    "statistics": api_statistics,
+    "unit_convert": api_unit_convert,
+    "percentage": api_percentage,
+    "number_format": api_number_format,
+    # --- Network & domains ---
+    "http_check": api_http_check,
+    "tls_cert": api_tls_cert,
+    "robots_check": api_robots_check,
+    "sitemap_reader": api_sitemap_reader,
+    "whois_rdap": api_whois_rdap,
+    # --- Payments & x402 utils ---
+    "x402_market_pulse": api_x402_market_pulse,
+    "usdc_balance": api_usdc_balance,
+    "tx_status": api_tx_status,
 }
 
 EXTRA_PRICES_USD = {
@@ -1214,6 +1716,48 @@ EXTRA_PRICES_USD = {
     "domain_enrich": "0.001",
     "news_headlines": "0.001",
     "social_search": "0.001",
+    # --- Data conversion (agent402 category match) ---
+    "json_validate": "0.001",
+    "json_to_csv": "0.001",
+    "csv_to_json": "0.001",
+    "yaml_to_json": "0.001",
+    "json_to_yaml": "0.001",
+    "xml_to_json": "0.001",
+    # --- Text processing ---
+    "text_slugify": "0.001",
+    "text_case_convert": "0.001",
+    "text_stats": "0.001",
+    "keyword_extract": "0.001",
+    "text_diff": "0.001",
+    "regex_test": "0.001",
+    # --- Validation & parsing ---
+    "email_validate": "0.001",
+    "url_parse": "0.001",
+    "ip_info": "0.002",
+    "useragent_parse": "0.001",
+    "semver_compare": "0.001",
+    # --- Encoding & crypto ---
+    "hash_compute": "0.001",
+    "hmac_compute": "0.001",
+    "base64_encode": "0.001",
+    "hex_convert": "0.001",
+    "jwt_decode": "0.001",
+    # --- Math & finance ---
+    "calculator": "0.001",
+    "statistics": "0.001",
+    "unit_convert": "0.001",
+    "percentage": "0.001",
+    "number_format": "0.001",
+    # --- Network & domains (extend existing dns/http) ---
+    "http_check": "0.002",
+    "tls_cert": "0.002",
+    "robots_check": "0.001",
+    "sitemap_reader": "0.002",
+    "whois_rdap": "0.003",
+    # --- Payments & x402 utils ---
+    "x402_market_pulse": "0.001",
+    "usdc_balance": "0.001",
+    "tx_status": "0.001",
 }
 
 EXTRA_ACP_DEFAULTS = {k: 0.001 for k in EXTRA_ENDPOINTS}
