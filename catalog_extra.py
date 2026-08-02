@@ -1739,6 +1739,11 @@ EXTRA_ENDPOINTS = {
     "x402_market_pulse": api_x402_market_pulse,
     "usdc_balance": api_usdc_balance,
     "tx_status": api_tx_status,
+    # --- US Gov & public data ---
+    "us_weather_alerts": api_us_weather_alerts,
+    "usgs_earthquakes": api_usgs_earthquakes,
+    "fda_food_recalls": api_fda_food_recalls,
+    "us_gov_search": api_us_gov_search,
 }
 
 EXTRA_PRICES_USD = {
@@ -1825,6 +1830,11 @@ EXTRA_PRICES_USD = {
     "x402_market_pulse": "0.001",
     "usdc_balance": "0.001",
     "tx_status": "0.001",
+    # --- US Gov & public data ---
+    "us_weather_alerts": "0.001",
+    "usgs_earthquakes": "0.001",
+    "fda_food_recalls": "0.001",
+    "us_gov_search": "0.001",
 }
 
 EXTRA_ACP_DEFAULTS = {k: 0.001 for k in EXTRA_ENDPOINTS}
