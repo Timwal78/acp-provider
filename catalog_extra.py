@@ -1440,7 +1440,8 @@ def api_unit_convert(params: dict | None = None) -> dict:
     from_unit = (p.get("from") or "").lower()
     to_unit = (p.get("to") or "").lower()
     conversions = {
-        ("km","miles"): lambda v: v * 0.621371, ("miles","km"): lambda v: v * 1.60934,
+        ("km","miles"): lambda v: v * 0.621371, ("km","mi"): lambda v: v * 0.621371,
+        ("miles","km"): lambda v: v * 1.60934, ("mi","km"): lambda v: v * 1.60934,
         ("kg","lbs"): lambda v: v * 2.20462, ("lbs","kg"): lambda v: v / 2.20462,
         ("c","f"): lambda v: v * 9/5 + 32, ("f","c"): lambda v: (v - 32) * 5/9,
         ("m","ft"): lambda v: v * 3.28084, ("ft","m"): lambda v: v / 3.28084,
