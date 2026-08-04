@@ -362,6 +362,7 @@ def build_agent_card(base_url: str | None = None) -> dict[str, Any]:
             "payTo": PAY_TO,
             "facilitator": FACILITATOR,
             "discovery": "/.well-known/x402",
+            "amb": "/.well-known/amb.json",
             "flow": [
                 "GET /x402/<endpoint> without X-PAYMENT → HTTP 402 with payment requirements",
                 "Agent pays exact USDC amount to payTo on the declared network",

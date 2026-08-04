@@ -342,8 +342,14 @@ def _category_for(name: str) -> str:
 
 
 def _all_tools() -> list[dict[str, Any]]:
-    """Build the full MCP tool list from the live ENDPOINTS dict."""
-    return [_tool_for(name, fn) for name, fn in PROVIDER_ENDPOINTS.items()]
+    """Build the full MCP tool list from the live ENDPOINTS dict + free AMB tools."""
+    tools = [_tool_for(name, fn) for name, fn in PROVIDER_ENDPOINTS.items()]
+    try:
+        from amb import free_magnet_tools
+        tools = list(free_magnet_tools()) + tools
+    except Exception as e:
+        logging.getLogger("mcp").warning("AMB free tools unavailable: %s", e)
+    return tools
 
 
 # ── Payment gate for tools/call ──────────────────────────────────────────────
@@ -518,6 +524,20 @@ def _rpc_tools_call(params: dict[str, Any], req_id: Any) -> dict[str, Any]:
     tool_name = params.get("name")
     if not tool_name or not isinstance(tool_name, str):
         return _rpc_error(req_id, code=-32602, message="missing or invalid 'name' in tools/call params")
+
+    # FREE AMB discovery tools — no x402
+    if tool_name in ("list_magnets", "get_agent_magnet_beacons"):
+        try:
+            from amb import handle_free_magnet_tool
+            raw_args = params.get("arguments", {}) or {}
+            result = handle_free_magnet_tool(tool_name, raw_args if isinstance(raw_args, dict) else {})
+            return _rpc_result(req_id, {
+                "content": [{"type": "text", "text": json.dumps(result, default=str, ensure_ascii=False)}],
+                "isError": False,
+            })
+        except Exception as e:
+            logger.exception("[mcp] free magnet tool %s failed", tool_name)
+            return _rpc_error(req_id, code=-32000, message=f"magnet tool failed: {e}")
 
     fn = PROVIDER_ENDPOINTS.get(tool_name)
     if fn is None:
@@ -701,7 +721,9 @@ def mcp_manifest():
             },
         },
         "tools": _all_tools(),
-        "toolsCount": len(PROVIDER_ENDPOINTS),
+        "toolsCount": len(PROVIDER_ENDPOINTS) + 2,  # + list_magnets + get_agent_magnet_beacons
+        "freeTools": ["list_magnets", "get_agent_magnet_beacons"],
+        "amb": f"{base_url}/.well-known/amb.json",
     }
     resp = jsonify(manifest)
     resp.headers["Content-Type"] = "application/json"

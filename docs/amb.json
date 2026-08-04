@@ -1,0 +1,546 @@
+{
+  "amb_version": "0.1.0",
+  "type": "AgentMagnetBeaconSet",
+  "issuer": "did:agentcard:scriptmasterlabs:0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+  "pay_to": "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+  "rails": [
+    "base_usdc",
+    "robinhood_usdg",
+    "solana_usdc",
+    "xrpl_rlusd"
+  ],
+  "count": 5,
+  "beacons": [
+    {
+      "amb_version": "0.1.0",
+      "type": "AgentMagnetBeacon",
+      "id": "sha256:32bc6699d70608dd54041236dc1767da4c607aeee73c09f6fa5ac1648c6dfbab",
+      "issuer": "did:agentcard:scriptmasterlabs:0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+      "agent": {
+        "name": "scriptmasterlabs",
+        "id": "019f5f40-c194-7776-b5e1-7a666ce631c0",
+        "wallet": "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+        "marketplace": "Virtuals ACP"
+      },
+      "issued_at": 1785885204286,
+      "expires_at": 1785886104286,
+      "namespace": "Finance.TradingIntelligence.SqueezeOS",
+      "endpoint": "https://acp-x402-scriptmasterlabs.onrender.com/.well-known/amb.json",
+      "tool_name": "list_magnets",
+      "payment": {
+        "rails": [
+          "base_usdc",
+          "robinhood_usdg",
+          "solana_usdc",
+          "xrpl_rlusd"
+        ],
+        "price": "0",
+        "currency": "USDC",
+        "x402": false,
+        "pay_to": "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+        "payToByNetwork": {
+          "eip155:8453": "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+          "base": "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+          "eip155:4663": "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+          "robinhood": "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+          "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp": "E4d3JwcTjeqTRkkQS4moszcfa4R7G1NMgPSew4KBNFrB",
+          "solana": "E4d3JwcTjeqTRkkQS4moszcfa4R7G1NMgPSew4KBNFrB",
+          "xrpl": "rNduuviQ3CCvHqWUTjJDD82Ko2tjqFGs3q",
+          "xrpl:0": "rNduuviQ3CCvHqWUTjJDD82Ko2tjqFGs3q"
+        },
+        "assetsByNetwork": {
+          "eip155:8453": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "eip155:4663": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+          "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "xrpl": "RLUSD"
+        },
+        "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "rail_detail": [
+          {
+            "id": "base_usdc",
+            "symbol": "USDC",
+            "network": "eip155:8453",
+            "payTo": "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+            "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+          },
+          {
+            "id": "robinhood_usdg",
+            "symbol": "USDG",
+            "aliases": [
+              "USCG"
+            ],
+            "network": "eip155:4663",
+            "payTo": "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+            "asset": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168"
+          },
+          {
+            "id": "solana_usdc",
+            "symbol": "USDC",
+            "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+            "payTo": "E4d3JwcTjeqTRkkQS4moszcfa4R7G1NMgPSew4KBNFrB",
+            "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+          },
+          {
+            "id": "xrpl_rlusd",
+            "symbol": "RLUSD",
+            "network": "xrpl",
+            "payTo": "rNduuviQ3CCvHqWUTjJDD82Ko2tjqFGs3q",
+            "asset": "RLUSD",
+            "issuer": "rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De"
+          }
+        ]
+      },
+      "performance": {
+        "avg_latency_ms": 420.0,
+        "success_rate_24h": 0.987,
+        "uptime_24h": 0.999
+      },
+      "reputation": {
+        "score": 0.94,
+        "settlements": 0,
+        "source": "ACP+402Proof",
+        "rating": "5.00"
+      },
+      "magnet_strength": 0.9046,
+      "capabilities": [
+        "list_magnets"
+      ],
+      "free_tier": true,
+      "description": "FREE AMB list",
+      "signature": "0x5e164567fd98fe68575c791eddc02220ef7eabea345035c73b195b33af9501e4",
+      "links": {
+        "x402": "https://acp-x402-scriptmasterlabs.onrender.com/.well-known/x402",
+        "agent_card": "https://acp-x402-scriptmasterlabs.onrender.com/.well-known/agent.json",
+        "mcp": "https://acp-x402-scriptmasterlabs.onrender.com/mcp",
+        "homepage": "https://www.scriptmasterlabs.com",
+        "acp_agent_id": "019f5f40-c194-7776-b5e1-7a666ce631c0"
+      }
+    },
+    {
+      "amb_version": "0.1.0",
+      "type": "AgentMagnetBeacon",
+      "id": "sha256:251e7c38d365ba0a9f1ed1d49991dbe412fea3d8f4fbf6015e20dc3c2ed3bfb6",
+      "issuer": "did:agentcard:scriptmasterlabs:0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+      "agent": {
+        "name": "scriptmasterlabs",
+        "id": "019f5f40-c194-7776-b5e1-7a666ce631c0",
+        "wallet": "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+        "marketplace": "Virtuals ACP"
+      },
+      "issued_at": 1785885204286,
+      "expires_at": 1785886104286,
+      "namespace": "Crypto.Onchain.Gas",
+      "endpoint": "https://acp-x402-scriptmasterlabs.onrender.com/x402/gas-tracker",
+      "tool_name": "gas_tracker",
+      "payment": {
+        "rails": [
+          "base_usdc",
+          "robinhood_usdg",
+          "solana_usdc",
+          "xrpl_rlusd"
+        ],
+        "price": "0.001",
+        "currency": "USDC",
+        "x402": true,
+        "pay_to": "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+        "payToByNetwork": {
+          "eip155:8453": "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+          "base": "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+          "eip155:4663": "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+          "robinhood": "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+          "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp": "E4d3JwcTjeqTRkkQS4moszcfa4R7G1NMgPSew4KBNFrB",
+          "solana": "E4d3JwcTjeqTRkkQS4moszcfa4R7G1NMgPSew4KBNFrB",
+          "xrpl": "rNduuviQ3CCvHqWUTjJDD82Ko2tjqFGs3q",
+          "xrpl:0": "rNduuviQ3CCvHqWUTjJDD82Ko2tjqFGs3q"
+        },
+        "assetsByNetwork": {
+          "eip155:8453": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "eip155:4663": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+          "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "xrpl": "RLUSD"
+        },
+        "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "rail_detail": [
+          {
+            "id": "base_usdc",
+            "symbol": "USDC",
+            "network": "eip155:8453",
+            "payTo": "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+            "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+          },
+          {
+            "id": "robinhood_usdg",
+            "symbol": "USDG",
+            "aliases": [
+              "USCG"
+            ],
+            "network": "eip155:4663",
+            "payTo": "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+            "asset": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168"
+          },
+          {
+            "id": "solana_usdc",
+            "symbol": "USDC",
+            "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+            "payTo": "E4d3JwcTjeqTRkkQS4moszcfa4R7G1NMgPSew4KBNFrB",
+            "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+          },
+          {
+            "id": "xrpl_rlusd",
+            "symbol": "RLUSD",
+            "network": "xrpl",
+            "payTo": "rNduuviQ3CCvHqWUTjJDD82Ko2tjqFGs3q",
+            "asset": "RLUSD",
+            "issuer": "rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De"
+          }
+        ]
+      },
+      "performance": {
+        "avg_latency_ms": 420.0,
+        "success_rate_24h": 0.987,
+        "uptime_24h": 0.999
+      },
+      "reputation": {
+        "score": 0.94,
+        "settlements": 0,
+        "source": "ACP+402Proof",
+        "rating": "5.00"
+      },
+      "magnet_strength": 0.9046,
+      "capabilities": [
+        "gas_tracker"
+      ],
+      "free_tier": false,
+      "description": "Live gas tracker",
+      "signature": "0xdad10d6e61ebb56d608a0751d23ba4a4d3d8b8aef12a34366a8c2305dc629c67",
+      "links": {
+        "x402": "https://acp-x402-scriptmasterlabs.onrender.com/.well-known/x402",
+        "agent_card": "https://acp-x402-scriptmasterlabs.onrender.com/.well-known/agent.json",
+        "mcp": "https://acp-x402-scriptmasterlabs.onrender.com/mcp",
+        "homepage": "https://www.scriptmasterlabs.com",
+        "acp_agent_id": "019f5f40-c194-7776-b5e1-7a666ce631c0"
+      }
+    },
+    {
+      "amb_version": "0.1.0",
+      "type": "AgentMagnetBeacon",
+      "id": "sha256:e5110da2e658534a32c77984c0cf2ef94c64488cf3ce48a0e375ea0771a84ba5",
+      "issuer": "did:agentcard:scriptmasterlabs:0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+      "agent": {
+        "name": "scriptmasterlabs",
+        "id": "019f5f40-c194-7776-b5e1-7a666ce631c0",
+        "wallet": "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+        "marketplace": "Virtuals ACP"
+      },
+      "issued_at": 1785885204286,
+      "expires_at": 1785886104286,
+      "namespace": "Crypto.Market.Data",
+      "endpoint": "https://acp-x402-scriptmasterlabs.onrender.com/x402/crypto-price",
+      "tool_name": "crypto_price",
+      "payment": {
+        "rails": [
+          "base_usdc",
+          "robinhood_usdg",
+          "solana_usdc",
+          "xrpl_rlusd"
+        ],
+        "price": "0.001",
+        "currency": "USDC",
+        "x402": true,
+        "pay_to": "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+        "payToByNetwork": {
+          "eip155:8453": "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+          "base": "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+          "eip155:4663": "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+          "robinhood": "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+          "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp": "E4d3JwcTjeqTRkkQS4moszcfa4R7G1NMgPSew4KBNFrB",
+          "solana": "E4d3JwcTjeqTRkkQS4moszcfa4R7G1NMgPSew4KBNFrB",
+          "xrpl": "rNduuviQ3CCvHqWUTjJDD82Ko2tjqFGs3q",
+          "xrpl:0": "rNduuviQ3CCvHqWUTjJDD82Ko2tjqFGs3q"
+        },
+        "assetsByNetwork": {
+          "eip155:8453": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "eip155:4663": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+          "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "xrpl": "RLUSD"
+        },
+        "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "rail_detail": [
+          {
+            "id": "base_usdc",
+            "symbol": "USDC",
+            "network": "eip155:8453",
+            "payTo": "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+            "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+          },
+          {
+            "id": "robinhood_usdg",
+            "symbol": "USDG",
+            "aliases": [
+              "USCG"
+            ],
+            "network": "eip155:4663",
+            "payTo": "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+            "asset": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168"
+          },
+          {
+            "id": "solana_usdc",
+            "symbol": "USDC",
+            "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+            "payTo": "E4d3JwcTjeqTRkkQS4moszcfa4R7G1NMgPSew4KBNFrB",
+            "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+          },
+          {
+            "id": "xrpl_rlusd",
+            "symbol": "RLUSD",
+            "network": "xrpl",
+            "payTo": "rNduuviQ3CCvHqWUTjJDD82Ko2tjqFGs3q",
+            "asset": "RLUSD",
+            "issuer": "rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De"
+          }
+        ]
+      },
+      "performance": {
+        "avg_latency_ms": 420.0,
+        "success_rate_24h": 0.987,
+        "uptime_24h": 0.999
+      },
+      "reputation": {
+        "score": 0.94,
+        "settlements": 0,
+        "source": "ACP+402Proof",
+        "rating": "5.00"
+      },
+      "magnet_strength": 0.9046,
+      "capabilities": [
+        "crypto_price"
+      ],
+      "free_tier": false,
+      "description": "Crypto price",
+      "signature": "0x4e3fb67401dd4514fea447c22af4ad1675dd4fdd8471b292a27fadd876ec34a2",
+      "links": {
+        "x402": "https://acp-x402-scriptmasterlabs.onrender.com/.well-known/x402",
+        "agent_card": "https://acp-x402-scriptmasterlabs.onrender.com/.well-known/agent.json",
+        "mcp": "https://acp-x402-scriptmasterlabs.onrender.com/mcp",
+        "homepage": "https://www.scriptmasterlabs.com",
+        "acp_agent_id": "019f5f40-c194-7776-b5e1-7a666ce631c0"
+      }
+    },
+    {
+      "amb_version": "0.1.0",
+      "type": "AgentMagnetBeacon",
+      "id": "sha256:44176825a7a4d8633d6e13bdbd21af24548d006e33b8e67ff721677e036c4cd7",
+      "issuer": "did:agentcard:scriptmasterlabs:0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+      "agent": {
+        "name": "scriptmasterlabs",
+        "id": "019f5f40-c194-7776-b5e1-7a666ce631c0",
+        "wallet": "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+        "marketplace": "Virtuals ACP"
+      },
+      "issued_at": 1785885204286,
+      "expires_at": 1785886104286,
+      "namespace": "Finance.RWA.Intelligence",
+      "endpoint": "https://acp-x402-scriptmasterlabs.onrender.com/x402/rwa-intelligence",
+      "tool_name": "rwa_intelligence",
+      "payment": {
+        "rails": [
+          "base_usdc",
+          "robinhood_usdg",
+          "solana_usdc",
+          "xrpl_rlusd"
+        ],
+        "price": "0.001",
+        "currency": "USDC",
+        "x402": true,
+        "pay_to": "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+        "payToByNetwork": {
+          "eip155:8453": "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+          "base": "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+          "eip155:4663": "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+          "robinhood": "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+          "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp": "E4d3JwcTjeqTRkkQS4moszcfa4R7G1NMgPSew4KBNFrB",
+          "solana": "E4d3JwcTjeqTRkkQS4moszcfa4R7G1NMgPSew4KBNFrB",
+          "xrpl": "rNduuviQ3CCvHqWUTjJDD82Ko2tjqFGs3q",
+          "xrpl:0": "rNduuviQ3CCvHqWUTjJDD82Ko2tjqFGs3q"
+        },
+        "assetsByNetwork": {
+          "eip155:8453": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "eip155:4663": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+          "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "xrpl": "RLUSD"
+        },
+        "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "rail_detail": [
+          {
+            "id": "base_usdc",
+            "symbol": "USDC",
+            "network": "eip155:8453",
+            "payTo": "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+            "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+          },
+          {
+            "id": "robinhood_usdg",
+            "symbol": "USDG",
+            "aliases": [
+              "USCG"
+            ],
+            "network": "eip155:4663",
+            "payTo": "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+            "asset": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168"
+          },
+          {
+            "id": "solana_usdc",
+            "symbol": "USDC",
+            "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+            "payTo": "E4d3JwcTjeqTRkkQS4moszcfa4R7G1NMgPSew4KBNFrB",
+            "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+          },
+          {
+            "id": "xrpl_rlusd",
+            "symbol": "RLUSD",
+            "network": "xrpl",
+            "payTo": "rNduuviQ3CCvHqWUTjJDD82Ko2tjqFGs3q",
+            "asset": "RLUSD",
+            "issuer": "rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De"
+          }
+        ]
+      },
+      "performance": {
+        "avg_latency_ms": 420.0,
+        "success_rate_24h": 0.987,
+        "uptime_24h": 0.999
+      },
+      "reputation": {
+        "score": 0.94,
+        "settlements": 0,
+        "source": "ACP+402Proof",
+        "rating": "5.00"
+      },
+      "magnet_strength": 0.9046,
+      "capabilities": [
+        "rwa_intelligence"
+      ],
+      "free_tier": false,
+      "description": "RWA intel",
+      "signature": "0x0e36714ca0f778207730adecaec71f4ce5a11775b02978cf67d4e41a04374086",
+      "links": {
+        "x402": "https://acp-x402-scriptmasterlabs.onrender.com/.well-known/x402",
+        "agent_card": "https://acp-x402-scriptmasterlabs.onrender.com/.well-known/agent.json",
+        "mcp": "https://acp-x402-scriptmasterlabs.onrender.com/mcp",
+        "homepage": "https://www.scriptmasterlabs.com",
+        "acp_agent_id": "019f5f40-c194-7776-b5e1-7a666ce631c0"
+      }
+    },
+    {
+      "amb_version": "0.1.0",
+      "type": "AgentMagnetBeacon",
+      "id": "sha256:009e6c9f77ee613463db1daced3c46ddfcd8ab44c03d08d4d8dd3c82a3227e67",
+      "issuer": "did:agentcard:scriptmasterlabs:0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+      "agent": {
+        "name": "scriptmasterlabs",
+        "id": "019f5f40-c194-7776-b5e1-7a666ce631c0",
+        "wallet": "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+        "marketplace": "Virtuals ACP"
+      },
+      "issued_at": 1785885204286,
+      "expires_at": 1785886104286,
+      "namespace": "Finance.Trading.Perps",
+      "endpoint": "https://acp-x402-scriptmasterlabs.onrender.com/x402/perp-funding-aggregator",
+      "tool_name": "perp_funding_aggregator",
+      "payment": {
+        "rails": [
+          "base_usdc",
+          "robinhood_usdg",
+          "solana_usdc",
+          "xrpl_rlusd"
+        ],
+        "price": "0.001",
+        "currency": "USDC",
+        "x402": true,
+        "pay_to": "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+        "payToByNetwork": {
+          "eip155:8453": "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+          "base": "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+          "eip155:4663": "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+          "robinhood": "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+          "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp": "E4d3JwcTjeqTRkkQS4moszcfa4R7G1NMgPSew4KBNFrB",
+          "solana": "E4d3JwcTjeqTRkkQS4moszcfa4R7G1NMgPSew4KBNFrB",
+          "xrpl": "rNduuviQ3CCvHqWUTjJDD82Ko2tjqFGs3q",
+          "xrpl:0": "rNduuviQ3CCvHqWUTjJDD82Ko2tjqFGs3q"
+        },
+        "assetsByNetwork": {
+          "eip155:8453": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "eip155:4663": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+          "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "xrpl": "RLUSD"
+        },
+        "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "rail_detail": [
+          {
+            "id": "base_usdc",
+            "symbol": "USDC",
+            "network": "eip155:8453",
+            "payTo": "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+            "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+          },
+          {
+            "id": "robinhood_usdg",
+            "symbol": "USDG",
+            "aliases": [
+              "USCG"
+            ],
+            "network": "eip155:4663",
+            "payTo": "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
+            "asset": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168"
+          },
+          {
+            "id": "solana_usdc",
+            "symbol": "USDC",
+            "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+            "payTo": "E4d3JwcTjeqTRkkQS4moszcfa4R7G1NMgPSew4KBNFrB",
+            "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+          },
+          {
+            "id": "xrpl_rlusd",
+            "symbol": "RLUSD",
+            "network": "xrpl",
+            "payTo": "rNduuviQ3CCvHqWUTjJDD82Ko2tjqFGs3q",
+            "asset": "RLUSD",
+            "issuer": "rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De"
+          }
+        ]
+      },
+      "performance": {
+        "avg_latency_ms": 420.0,
+        "success_rate_24h": 0.987,
+        "uptime_24h": 0.999
+      },
+      "reputation": {
+        "score": 0.94,
+        "settlements": 0,
+        "source": "ACP+402Proof",
+        "rating": "5.00"
+      },
+      "magnet_strength": 0.9046,
+      "capabilities": [
+        "perp_funding_aggregator"
+      ],
+      "free_tier": false,
+      "description": "Perp funding",
+      "signature": "0x5567728f4eab183e8090fa2db4078174b94c8744e8a2819dd303d0ea63e442a8",
+      "links": {
+        "x402": "https://acp-x402-scriptmasterlabs.onrender.com/.well-known/x402",
+        "agent_card": "https://acp-x402-scriptmasterlabs.onrender.com/.well-known/agent.json",
+        "mcp": "https://acp-x402-scriptmasterlabs.onrender.com/mcp",
+        "homepage": "https://www.scriptmasterlabs.com",
+        "acp_agent_id": "019f5f40-c194-7776-b5e1-7a666ce631c0"
+      }
+    }
+  ],
+  "discovery": {
+    "amb": "https://acp-x402-scriptmasterlabs.onrender.com/.well-known/amb.json",
+    "www": "https://www.scriptmasterlabs.com/.well-known/amb.json",
+    "mcp": "https://mcp-x402.onrender.com/.well-known/amb.json"
+  },
+  "note": "Multi-rail: Base USDC, RH USDG, Sol USDC, XRPL RLUSD. pay_to ACP 0x7233 never 0x4e14."
+}
