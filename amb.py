@@ -50,16 +50,14 @@ DEFAULT_RAILS = ["base_usdc", "robinhood_usdg", "solana_usdc", "xrpl_rlusd"]
 AMB_VERSION = "0.1.0"
 
 # ── Privacy-safe rolling 24h agent traffic (public aggregates only) ───────────
+# File-backed so multi-worker gunicorn shares counters on one instance.
+import json as _json
+import fcntl
+from pathlib import Path as _Path
+
 _WINDOW_MS = 24 * 60 * 60 * 1000
-_MAX_EVENTS = 50000
-_TRAFFIC_EVENTS: list[tuple[int, str, str]] = []  # (ts_ms, kind, agent_key)
-_LIFETIME = {
-    "amb_fetches": 0,
-    "list_magnets_calls": 0,
-    "get_agent_magnet_beacons_calls": 0,
-    "paid_calls": 0,
-}
-_LIFETIME_AGENTS: set[str] = set()
+_MAX_EVENTS = 20000
+_TRAFFIC_PATH = _Path(os.environ.get("AMB_TRAFFIC_FILE", "/tmp/sml_amb_traffic.json"))
 
 
 def _agent_key_from_request() -> str:
@@ -79,37 +77,97 @@ def _agent_key_from_request() -> str:
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
+def _empty_store() -> dict[str, Any]:
+    return {
+        "events": [],
+        "lifetime": {
+            "amb_fetches": 0,
+            "list_magnets_calls": 0,
+            "get_agent_magnet_beacons_calls": 0,
+            "paid_calls": 0,
+        },
+        "lifetime_agents": [],
+    }
+
+
+def _load_store_unlocked(fh) -> dict[str, Any]:
+    try:
+        fh.seek(0)
+        raw = fh.read()
+        if not raw:
+            return _empty_store()
+        data = _json.loads(raw)
+        if not isinstance(data, dict):
+            return _empty_store()
+        data.setdefault("events", [])
+        data.setdefault("lifetime", _empty_store()["lifetime"])
+        data.setdefault("lifetime_agents", [])
+        return data
+    except Exception:
+        return _empty_store()
+
+
+def _prune_store(data: dict[str, Any], now: int) -> None:
+    cutoff = now - _WINDOW_MS
+    ev = [e for e in data.get("events") or [] if isinstance(e, list) and len(e) >= 3 and int(e[0]) >= cutoff]
+    if len(ev) > _MAX_EVENTS:
+        ev = ev[-_MAX_EVENTS:]
+    data["events"] = ev
+
+
 def record_amb_traffic(kind: str, agent_key: str | None = None) -> None:
     now = int(time.time() * 1000)
     key = (agent_key or "anon")[:32]
-    cutoff = now - _WINDOW_MS
-    # prune front
-    while _TRAFFIC_EVENTS and _TRAFFIC_EVENTS[0][0] < cutoff:
-        _TRAFFIC_EVENTS.pop(0)
-    if len(_TRAFFIC_EVENTS) >= _MAX_EVENTS:
-        del _TRAFFIC_EVENTS[: len(_TRAFFIC_EVENTS) - _MAX_EVENTS + 1]
-    _TRAFFIC_EVENTS.append((now, kind, key))
-    if key not in _LIFETIME_AGENTS:
-        _LIFETIME_AGENTS.add(key)
-    if kind == "amb_fetch":
-        _LIFETIME["amb_fetches"] += 1
-    elif kind == "list_magnets":
-        _LIFETIME["list_magnets_calls"] += 1
-    elif kind == "get_agent_magnet_beacons":
-        _LIFETIME["get_agent_magnet_beacons_calls"] += 1
-    elif kind == "paid_call":
-        _LIFETIME["paid_calls"] += 1
+    _TRAFFIC_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(_TRAFFIC_PATH, "a+", encoding="utf-8") as fh:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        try:
+            data = _load_store_unlocked(fh)
+            _prune_store(data, now)
+            data["events"].append([now, kind, key])
+            agents = set(data.get("lifetime_agents") or [])
+            if key not in agents:
+                agents.add(key)
+                data["lifetime_agents"] = list(agents)[:5000]
+            life = data.setdefault("lifetime", _empty_store()["lifetime"])
+            if kind == "amb_fetch":
+                life["amb_fetches"] = int(life.get("amb_fetches") or 0) + 1
+            elif kind == "list_magnets":
+                life["list_magnets_calls"] = int(life.get("list_magnets_calls") or 0) + 1
+            elif kind == "get_agent_magnet_beacons":
+                life["get_agent_magnet_beacons_calls"] = int(life.get("get_agent_magnet_beacons_calls") or 0) + 1
+            elif kind == "paid_call":
+                life["paid_calls"] = int(life.get("paid_calls") or 0) + 1
+            fh.seek(0)
+            fh.truncate()
+            fh.write(_json.dumps(data, separators=(",", ":")))
+            fh.flush()
+        finally:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
 
 
 def get_amb_traffic_snapshot() -> dict[str, Any]:
     now = int(time.time() * 1000)
-    cutoff = now - _WINDOW_MS
-    while _TRAFFIC_EVENTS and _TRAFFIC_EVENTS[0][0] < cutoff:
-        _TRAFFIC_EVENTS.pop(0)
+    data = _empty_store()
+    try:
+        if _TRAFFIC_PATH.exists():
+            with open(_TRAFFIC_PATH, "r", encoding="utf-8") as fh:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_SH)
+                try:
+                    data = _load_store_unlocked(fh)
+                finally:
+                    fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+    except Exception:
+        data = _empty_store()
+    _prune_store(data, now)
     amb_fetches = list_m = get_m = paid = 0
     agents: set[str] = set()
     last = 0
-    for ts, kind, key in _TRAFFIC_EVENTS:
+    for row in data.get("events") or []:
+        try:
+            ts, kind, key = int(row[0]), str(row[1]), str(row[2])
+        except Exception:
+            continue
         agents.add(key)
         if ts > last:
             last = ts
@@ -121,6 +179,7 @@ def get_amb_traffic_snapshot() -> dict[str, Any]:
             get_m += 1
         elif kind == "paid_call":
             paid += 1
+    life = data.get("lifetime") or {}
     return {
         "window": "24h",
         "as_of": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now / 1000.0)),
@@ -131,8 +190,11 @@ def get_amb_traffic_snapshot() -> dict[str, Any]:
         "unique_agents": len(agents),
         "last_seen_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(last / 1000.0)) if last else None,
         "lifetime": {
-            **_LIFETIME,
-            "unique_agents_approx": len(_LIFETIME_AGENTS),
+            "amb_fetches": int(life.get("amb_fetches") or 0),
+            "list_magnets_calls": int(life.get("list_magnets_calls") or 0),
+            "get_agent_magnet_beacons_calls": int(life.get("get_agent_magnet_beacons_calls") or 0),
+            "paid_calls": int(life.get("paid_calls") or 0),
+            "unique_agents_approx": len(data.get("lifetime_agents") or []),
         },
         "note": "Aggregates only. Agent identity hashed server-side; no IPs/wallets in public AMB.",
         "host": "acp-x402-scriptmasterlabs",
