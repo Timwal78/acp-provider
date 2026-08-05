@@ -453,6 +453,11 @@ def _settle_after_call(name: str) -> None:
         settle = _facilitator("/settle", payload, reqs)
         if settle.get("success"):
             logger.info("[mcp] x402 settled for tool=%s", name)
+            try:
+                from amb import record_amb_traffic, _agent_key_from_request
+                record_amb_traffic("paid_call", _agent_key_from_request())
+            except Exception:
+                pass
     except Exception as e:
         logger.warning("[mcp] x402 settle failed for tool=%s: %s", name, e)
 

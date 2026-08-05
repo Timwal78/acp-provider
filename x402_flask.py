@@ -77,7 +77,14 @@ NETWORK_CAIP = {
 # default here is SqueezeOS's OWN receiving address. Defaulting to it in this
 # repo would silently route real USDC payments meant for acp-provider into a
 # different product's wallet. Must be set explicitly per deployment.
-PAY_TO       = os.environ.get("X402_PAY_TO", "")
+_PAY_TO_RAW = (os.environ.get("X402_PAY_TO") or "").strip()
+_ACP_SAFE_PAY = "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa"
+if _PAY_TO_RAW.lower().startswith("0x4e14"):
+    import logging as _log
+    _log.getLogger("x402").error("REFUSED orphan X402_PAY_TO 0x4e14… — forcing ACP 0x7233…")
+    PAY_TO = _ACP_SAFE_PAY
+else:
+    PAY_TO = _PAY_TO_RAW
 # Defaults to the CDP-hosted mainnet facilitator once CDP creds are present,
 # otherwise the public signup-free testnet facilitator. Explicit
 # X402_FACILITATOR always wins over both.
@@ -86,6 +93,16 @@ FACILITATOR  = os.environ.get(
     "https://api.cdp.coinbase.com/platform/v2/x402" if _CDP_CONFIGURED else "https://x402.org/facilitator",
 ).rstrip("/")
 MAX_TIMEOUT  = int(os.environ.get("X402_MAX_TIMEOUT", "300"))
+
+def _amb_count_paid(payer: str | None = None) -> None:
+    """Best-effort AMB paid_call counter (never raises)."""
+    try:
+        from amb import record_amb_traffic, _agent_key_from_request
+        key = (payer or "").strip() or _agent_key_from_request()
+        record_amb_traffic("paid_call", key[:42] if key else "anon")
+    except Exception:
+        pass
+
 
 
 def _cdp_ed25519_private_key():
@@ -758,6 +775,7 @@ def x402_guard(price_usdc: str, description: str, discoverable: bool = True, pat
                     "amount": v.get("amount"),
                     "asset": v.get("asset"),
                 }, separators=(",", ":")).encode()).decode()
+                _amb_count_paid(v.get("from") or "unknown")
                 try:
                     from proof402_integration import _fire_payment_discord
                     _fire_payment_discord(v.get("from") or "unknown", request.path, 2)
@@ -785,13 +803,14 @@ def x402_guard(price_usdc: str, description: str, discoverable: bool = True, pat
             if settle.get("success", False):
                 resp.headers["X-PAYMENT-RESPONSE"] = base64.b64encode(
                     json.dumps(settle).encode()).decode()
+                payer = (
+                    settle.get("payer")
+                    or payment_payload.get("payload", {}).get("authorization", {}).get("from", "")
+                    or "unknown"
+                )
+                _amb_count_paid(payer)
                 try:
                     from proof402_integration import _fire_payment_discord
-                    payer = (
-                        settle.get("payer")
-                        or payment_payload.get("payload", {}).get("authorization", {}).get("from", "")
-                        or "unknown"
-                    )
                     _fire_payment_discord(payer, request.path, 2)
                 except Exception:
                     pass
