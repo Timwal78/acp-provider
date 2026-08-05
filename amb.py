@@ -302,6 +302,112 @@ def magnet_strength(
     return max(0.0, min(1.0, round(raw, 4)))
 
 
+IMP_VERSION = "0.1.0"
+_RAIL_WEIGHTS = (
+    ("base_usdc", 1.0, ()),
+    ("base_usdg", 0.9, ("robinhood_usdg", "uscg")),
+    ("solana_usdc", 0.85, ()),
+    ("xrpl_rlusd", 0.8, ()),
+)
+
+
+def _clamp01(x: float) -> float:
+    try:
+        return max(0.0, min(1.0, float(x)))
+    except Exception:
+        return 0.0
+
+
+def rail_score(rail_health: dict[str, float] | None = None) -> dict[str, Any]:
+    health = {rid: 1.0 for rid, _, _ in _RAIL_WEIGHTS}
+    if rail_health:
+        for k, v in rail_health.items():
+            kid = str(k).lower()
+            for rid, _w, aliases in _RAIL_WEIGHTS:
+                if kid == rid or kid in aliases:
+                    health[rid] = _clamp01(v)
+    num = den = 0.0
+    healthy = 0
+    detail = []
+    for rid, w, _a in _RAIL_WEIGHTS:
+        h = health.get(rid, 0.0)
+        num += w * h
+        den += w
+        if h >= 0.5:
+            healthy += 1
+        detail.append({"id": rid, "health": h, "weight": w})
+    score = (num / den) if den else 0.0
+    coverage = healthy / len(_RAIL_WEIGHTS) if _RAIL_WEIGHTS else 0.0
+    return {
+        "rail_score": round(score, 4),
+        "rail_coverage": round(coverage, 4),
+        "healthy_rails": healthy,
+        "total_rails": len(_RAIL_WEIGHTS),
+        "rails": detail,
+    }
+
+
+def health_from_advertised_rails(rails: list[str] | None = None) -> dict[str, float]:
+    if not rails:
+        return {rid: 1.0 for rid, _, _ in _RAIL_WEIGHTS}
+    s = {str(r).lower() for r in rails}
+    def has(*ids: str) -> float:
+        return 1.0 if any(i in s for i in ids) else 0.0
+    return {
+        "base_usdc": has("base_usdc"),
+        "base_usdg": has("base_usdg", "robinhood_usdg", "uscg"),
+        "solana_usdc": has("solana_usdc"),
+        "xrpl_rlusd": has("xrpl_rlusd"),
+    }
+
+
+def imp_score_tool(
+    *,
+    tool: str,
+    reputation: float = 0.94,
+    success_rate_24h: float = 0.987,
+    uptime_24h: float = 0.999,
+    avg_latency_ms: float = 420.0,
+    price: str = "0.001",
+    pay_to: str | None = None,
+    advertised_rails: list[str] | None = None,
+    issued_at_ms: int | None = None,
+    ttl_ms: int = DEFAULT_TTL_MS,
+    free_tier: bool = False,
+) -> dict[str, Any]:
+    """IMP v0.1 composite — primary rank key for list_magnets."""
+    raw_pay = (pay_to or AGENT_WALLET or "").strip()
+    orphan = raw_pay.lower().startswith("0x4e14")
+    pay = AGENT_WALLET if (not raw_pay or orphan) else raw_pay
+    mag = magnet_strength(reputation, success_rate_24h, uptime_24h, avg_latency_ms)
+    rails = rail_score(health_from_advertised_rails(advertised_rails or list(DEFAULT_RAILS)))
+    issued = issued_at_ms if issued_at_ms is not None else int(time.time() * 1000)
+    stale = max(0, int(time.time() * 1000) - issued) > ttl_ms
+    imp = mag * 0.70 + rails["rail_score"] * 0.20 + rails["rail_coverage"] * 0.10
+    if stale:
+        imp *= 0.85
+    imp = max(0.0, min(1.0, round(imp, 4)))
+    return {
+        "tool": tool,
+        "pay_to": pay,
+        "price": price,
+        "free_tier": free_tier,
+        "magnet_strength": mag,
+        "imp_score": imp,
+        "rail_score": rails["rail_score"],
+        "rail_coverage": rails["rail_coverage"],
+        "healthy_rails": rails["healthy_rails"],
+        "total_rails": rails["total_rails"],
+        "stale": stale,
+        "orphan_refused": orphan,
+        "imp_version": IMP_VERSION,
+        "formula": {
+            "magnet": "rep*0.50 + success*0.25 + uptime*0.15 + lat_term*0.10",
+            "imp": "magnet*0.70 + rail_score*0.20 + rail_coverage*0.10 (*0.85 if stale)",
+        },
+    }
+
+
 def _namespace_for(name: str) -> str:
     for prefix, ns in _NS.items():
         if name.startswith(prefix) or prefix.rstrip("_") in name:
@@ -352,9 +458,20 @@ def build_beacon(
     settlements: int = 0,
 ) -> dict[str, Any]:
     now = issued_at if issued_at is not None else int(time.time() * 1000)
-    strength = magnet_strength(
-        reputation_score, success_rate_24h, uptime_24h, avg_latency_ms
+    imp = imp_score_tool(
+        tool=tool_name,
+        reputation=reputation_score,
+        success_rate_24h=success_rate_24h,
+        uptime_24h=uptime_24h,
+        avg_latency_ms=avg_latency_ms,
+        price=str(price),
+        pay_to=AGENT_WALLET,
+        advertised_rails=list(DEFAULT_RAILS),
+        issued_at_ms=now,
+        ttl_ms=ttl_ms,
+        free_tier=free_tier,
     )
+    strength = imp["magnet_strength"]
     payment = {
         "rails": list(DEFAULT_RAILS),
         "price": str(price),
@@ -423,6 +540,17 @@ def build_beacon(
             "rating": "5.00",
         },
         "magnet_strength": strength,
+        "imp_score": imp["imp_score"],
+        "rail_score": imp["rail_score"],
+        "rail_coverage": imp["rail_coverage"],
+        "imp_version": IMP_VERSION,
+        "imp": {
+            "stale": imp["stale"],
+            "orphan_refused": imp["orphan_refused"],
+            "formula": imp["formula"],
+            "healthy_rails": imp["healthy_rails"],
+            "total_rails": imp["total_rails"],
+        },
         "capabilities": capabilities or [tool_name],
         "free_tier": free_tier,
         "description": description
@@ -513,7 +641,7 @@ def build_amb_document(
             (
                 "list_magnets",
                 f"{base}/.well-known/amb.json",
-                "FREE — list all Agent Magnet Beacons ranked by magnet_strength.",
+                "FREE — list all Agent Magnet Beacons ranked by IMP imp_score (multi-rail).",
             ),
             (
                 "get_agent_magnet_beacons",
@@ -542,7 +670,7 @@ def build_amb_document(
     # Rank paid beacons by magnet_strength desc (free stay on top)
     free = [b for b in beacons if b.get("free_tier")]
     paid = [b for b in beacons if not b.get("free_tier")]
-    paid.sort(key=lambda b: b.get("magnet_strength", 0), reverse=True)
+    paid.sort(key=lambda b: float(b.get("imp_score") or b.get("magnet_strength") or 0), reverse=True)
     beacons = free + paid
 
     top = paid[0] if paid else None
@@ -568,15 +696,20 @@ def build_amb_document(
         "top_magnet": {
             "tool_name": top["tool_name"],
             "magnet_strength": top["magnet_strength"],
+            "imp_score": top.get("imp_score"),
+            "rail_score": top.get("rail_score"),
+            "rail_coverage": top.get("rail_coverage"),
             "endpoint": top["endpoint"],
             "price": top["payment"]["price"],
         }
         if top
         else None,
         "formula": (
-            "magnet_strength = reputation*0.50 + success_rate_24h*0.25 "
-            "+ uptime_24h*0.15 + (1/log10(latency_ms+10))*0.10"
+            "imp_score = magnet*0.70 + rail_score*0.20 + rail_coverage*0.10; "
+            "magnet = rep*0.50 + success*0.25 + uptime*0.15 + lat_term*0.10 (IMP v0.1)"
         ),
+        "imp_version": IMP_VERSION,
+        "ranking": "list_magnets ranks by imp_score (fallback magnet_strength); free beacons first",
         "discovery": {
             "amb": f"{base}/.well-known/amb.json",
             "agent": f"{base}/.well-known/agent.json",
@@ -586,7 +719,7 @@ def build_amb_document(
         },
         "beacons": beacons,
         "note": (
-            "Prefer highest magnet_strength. Pay via x402 multi-rail (Base USDC, RH USDG, Sol USDC, XRPL RLUSD) or hire "
+            "Prefer highest imp_score (IMP v0.1 multi-rail). magnet_strength kept for scanners. Pay via x402 multi-rail (Base USDC, RH USDG, Sol USDC, XRPL RLUSD) or hire "
             "the same capabilities as ACP offerings on Virtuals. "
             "pay_to is the ACP EOA — never 0x4e14 orphan seed."
         ),
@@ -639,7 +772,7 @@ def free_magnet_tools() -> list[dict[str, Any]]:
             "name": "list_magnets",
             "description": (
                 "FREE. List Agent Magnet Beacons for scriptmasterlabs, ranked by "
-                "magnet_strength. Use this to discover which paid tools to call next. "
+                "magnet_strength. Ranked by IMP imp_score (multi-rail). Use this to discover which paid tools to call next. "
                 "No payment required."
             ),
             "inputSchema": {
@@ -721,19 +854,39 @@ def handle_free_magnet_tool(name: str, args: dict[str, Any] | None = None) -> di
     doc = _attach_traffic(build_amb_document(base_url=base, limit=lim))
     if name == "list_magnets":
         beacons = list(doc.get("beacons") or [])
+        sort_key = str(args.get("sort") or "imp_score")
+        def rank(b: dict) -> float:
+            if sort_key == "magnet_strength":
+                return float(b.get("magnet_strength") or 0)
+            return float(b.get("imp_score") or b.get("magnet_strength") or 0)
+        free = [b for b in beacons if b.get("free_tier")]
+        paid = [b for b in beacons if not b.get("free_tier")]
         min_s = args.get("min_strength")
         if min_s is not None:
             try:
                 ms = float(min_s)
-                beacons = [b for b in beacons if float(b.get("magnet_strength") or 0) >= ms]
+                paid = [b for b in paid if float(b.get("magnet_strength") or 0) >= ms]
             except Exception:
                 pass
+        min_imp = args.get("min_imp_score")
+        if min_imp is not None:
+            try:
+                mi = float(min_imp)
+                paid = [b for b in paid if float(b.get("imp_score") or b.get("magnet_strength") or 0) >= mi]
+            except Exception:
+                pass
+        paid.sort(key=rank, reverse=True)
+        beacons = free + paid
         if lim is None:
             lim = 25
         beacons = beacons[: int(lim)]
         return {
             "free": True,
             "count": len(beacons),
+            "sort": sort_key,
+            "ranking": "imp_score (IMP v0.1 multi-rail); free beacons first",
+            "imp_version": doc.get("imp_version") or IMP_VERSION,
+            "formula": doc.get("formula"),
             "agent": doc.get("agent"),
             "pay_to": doc.get("pay_to"),
             "top_magnet": doc.get("top_magnet"),
