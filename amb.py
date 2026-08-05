@@ -48,6 +48,112 @@ SOL_USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 RLUSD_ISSUER = "rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De"
 DEFAULT_RAILS = ["base_usdc", "robinhood_usdg", "solana_usdc", "xrpl_rlusd"]
 AMB_VERSION = "0.1.0"
+
+# ── Privacy-safe rolling 24h agent traffic (public aggregates only) ───────────
+_WINDOW_MS = 24 * 60 * 60 * 1000
+_MAX_EVENTS = 50000
+_TRAFFIC_EVENTS: list[tuple[int, str, str]] = []  # (ts_ms, kind, agent_key)
+_LIFETIME = {
+    "amb_fetches": 0,
+    "list_magnets_calls": 0,
+    "get_agent_magnet_beacons_calls": 0,
+    "paid_calls": 0,
+}
+_LIFETIME_AGENTS: set[str] = set()
+
+
+def _agent_key_from_request() -> str:
+    try:
+        h = request.headers
+    except Exception:
+        return "anon"
+    parts = [
+        (h.get("X-Agent-Id") or "").strip()[:200],
+        (h.get("X-Agent-Name") or "").strip()[:200],
+        (h.get("X-MCP-Client") or "").strip()[:200],
+        (h.get("User-Agent") or "").strip()[:200],
+    ]
+    raw = "|".join(p for p in parts if p).lower()
+    if not raw:
+        return "anon"
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
+def record_amb_traffic(kind: str, agent_key: str | None = None) -> None:
+    now = int(time.time() * 1000)
+    key = (agent_key or "anon")[:32]
+    cutoff = now - _WINDOW_MS
+    # prune front
+    while _TRAFFIC_EVENTS and _TRAFFIC_EVENTS[0][0] < cutoff:
+        _TRAFFIC_EVENTS.pop(0)
+    if len(_TRAFFIC_EVENTS) >= _MAX_EVENTS:
+        del _TRAFFIC_EVENTS[: len(_TRAFFIC_EVENTS) - _MAX_EVENTS + 1]
+    _TRAFFIC_EVENTS.append((now, kind, key))
+    if key not in _LIFETIME_AGENTS:
+        _LIFETIME_AGENTS.add(key)
+    if kind == "amb_fetch":
+        _LIFETIME["amb_fetches"] += 1
+    elif kind == "list_magnets":
+        _LIFETIME["list_magnets_calls"] += 1
+    elif kind == "get_agent_magnet_beacons":
+        _LIFETIME["get_agent_magnet_beacons_calls"] += 1
+    elif kind == "paid_call":
+        _LIFETIME["paid_calls"] += 1
+
+
+def get_amb_traffic_snapshot() -> dict[str, Any]:
+    now = int(time.time() * 1000)
+    cutoff = now - _WINDOW_MS
+    while _TRAFFIC_EVENTS and _TRAFFIC_EVENTS[0][0] < cutoff:
+        _TRAFFIC_EVENTS.pop(0)
+    amb_fetches = list_m = get_m = paid = 0
+    agents: set[str] = set()
+    last = 0
+    for ts, kind, key in _TRAFFIC_EVENTS:
+        agents.add(key)
+        if ts > last:
+            last = ts
+        if kind == "amb_fetch":
+            amb_fetches += 1
+        elif kind == "list_magnets":
+            list_m += 1
+        elif kind == "get_agent_magnet_beacons":
+            get_m += 1
+        elif kind == "paid_call":
+            paid += 1
+    return {
+        "window": "24h",
+        "as_of": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now / 1000.0)),
+        "amb_fetches": amb_fetches,
+        "list_magnets_calls": list_m,
+        "get_agent_magnet_beacons_calls": get_m,
+        "paid_calls": paid,
+        "unique_agents": len(agents),
+        "last_seen_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(last / 1000.0)) if last else None,
+        "lifetime": {
+            **_LIFETIME,
+            "unique_agents_approx": len(_LIFETIME_AGENTS),
+        },
+        "note": "Aggregates only. Agent identity hashed server-side; no IPs/wallets in public AMB.",
+        "host": "acp-x402-scriptmasterlabs",
+    }
+
+
+def _attach_traffic(doc: dict[str, Any]) -> dict[str, Any]:
+    traffic = get_amb_traffic_snapshot()
+    out = dict(doc)
+    out["traffic"] = traffic
+    out["agent_tracker"] = {
+        "unique_agents_24h": traffic["unique_agents"],
+        "amb_fetches_24h": traffic["amb_fetches"],
+        "list_magnets_24h": traffic["list_magnets_calls"],
+        "paid_calls_24h": traffic["paid_calls"],
+        "last_agent_at": traffic["last_seen_at"],
+        "lifetime_unique_agents_approx": traffic["lifetime"]["unique_agents_approx"],
+        "host": "acp-x402-scriptmasterlabs",
+    }
+    return out
+
 DEFAULT_TTL_MS = int(os.environ.get("AMB_TTL_MS", str(15 * 60 * 1000)))
 
 # Namespace hints by capability family
@@ -429,6 +535,18 @@ def build_amb_document(
 amb_bp = Blueprint("amb", __name__)
 
 
+@amb_bp.route("/amb/traffic", methods=["GET", "OPTIONS"])
+def amb_traffic():
+    if request.method == "OPTIONS":
+        resp = jsonify({})
+        resp.status_code = 204
+    else:
+        resp = jsonify(get_amb_traffic_snapshot())
+        resp.headers["Cache-Control"] = "public, max-age=30"
+    resp.headers["Access-Control-Allow-Origin"] = "*"
+    return resp
+
+
 @amb_bp.route("/.well-known/amb.json", methods=["GET", "OPTIONS"])
 def amb_json():
     if request.method == "OPTIONS":
@@ -438,10 +556,12 @@ def amb_json():
         base = request.host_url.rstrip("/")
         # optional ?limit=N for scanners
         lim = request.args.get("limit", type=int)
-        doc = build_amb_document(base_url=base, limit=lim)
+        record_amb_traffic("amb_fetch", _agent_key_from_request())
+        doc = _attach_traffic(build_amb_document(base_url=base, limit=lim))
         resp = jsonify(doc)
         resp.headers["Content-Type"] = "application/json"
-        resp.headers["Cache-Control"] = "public, max-age=300"
+        resp.headers["Cache-Control"] = "public, max-age=60"
+        resp.headers["X-AMB-Agents-24h"] = str(doc.get("traffic", {}).get("unique_agents", 0))
     resp.headers["Access-Control-Allow-Origin"] = "*"
     resp.headers["Access-Control-Allow-Methods"] = "GET,OPTIONS"
     resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Accept"
@@ -532,7 +652,11 @@ def handle_free_magnet_tool(name: str, args: dict[str, Any] | None = None) -> di
         lim = int(lim) if lim is not None else None
     except Exception:
         lim = None
-    doc = build_amb_document(base_url=base, limit=lim)
+    if name == "list_magnets":
+        record_amb_traffic("list_magnets", _agent_key_from_request())
+    else:
+        record_amb_traffic("get_agent_magnet_beacons", _agent_key_from_request())
+    doc = _attach_traffic(build_amb_document(base_url=base, limit=lim))
     if name == "list_magnets":
         beacons = list(doc.get("beacons") or [])
         min_s = args.get("min_strength")
@@ -551,6 +675,8 @@ def handle_free_magnet_tool(name: str, args: dict[str, Any] | None = None) -> di
             "agent": doc.get("agent"),
             "pay_to": doc.get("pay_to"),
             "top_magnet": doc.get("top_magnet"),
+            "traffic": doc.get("traffic"),
+            "agent_tracker": doc.get("agent_tracker"),
             "beacons": beacons,
             "full_document": f"{base}/.well-known/amb.json",
         }
