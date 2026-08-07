@@ -89,6 +89,9 @@ _PRICES_USD = {
     "sam_entity_verification": "0.001",
     "federal_spending_by_agency": "0.001",
     "excluded_parties_check": "0.001",
+    # --- Squeeze scanners ---
+    "crypto_squeeze_scanner": "0.001",
+    "crypto_penny_squeeze_scanner": "0.001",
     # --- Catalog extras ---
     **EXTRA_PRICES_USD,
 }
