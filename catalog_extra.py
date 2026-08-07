@@ -1767,6 +1767,200 @@ def api_us_gov_search(params: dict | None = None) -> dict:
 
 
 # Registry consumed by provider.py
+
+
+# ============================================================
+# CRYPTO SQUEEZE SCANNER
+# ============================================================
+
+_CRYPTO_SQUEEZE_UNIVERSE = [
+    # High beta / squeeze history on-chain
+    "bitcoin","ethereum","solana","binancecoin","ripple",
+    "dogecoin","shiba-inu","pepe","floki","bonk",
+    "arbitrum","optimism","avalanche-2","polygon","chainlink",
+    "uniswap","aave","compound-governance-token","maker","curve-dao-token",
+    "hyperliquid","virtuals-protocol","grass","io-net","render-token",
+    "near","aptos","sui","sei-network","injective-protocol",
+    "worldcoin-wld","friend-tech","mog-coin","brett","baby-doge-coin",
+]
+
+_CRYPTO_PENNY_UNIVERSE = [
+    # Sub-$1 high-volatility tokens with squeeze potential
+    "shiba-inu","pepe","floki","bonk","baby-doge-coin","mog-coin",
+    "book-of-meme","cat-in-a-dogs-world","turbo","milady","myro",
+    "neiro","popcat","fwog","pnut","goat","act-i-the-ai-prophecy",
+    "shoggoth","moodeng","ponke","retardio","giga","sigma",
+]
+
+
+def _fetch_coingecko_prices(ids: list[str]) -> list[dict]:
+    """Fetch batch prices from CoinGecko free API."""
+    ids_csv = ",".join(ids[:50])
+    url = (
+        "https://api.coingecko.com/api/v3/coins/markets"
+        f"?vs_currency=usd&ids={ids_csv}"
+        "&order=market_cap_desc&per_page=50&page=1"
+        "&price_change_percentage=24h,7d"
+        "&sparkline=false"
+    )
+    try:
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "Mozilla/5.0 (compatible; SMLBot/1.0)",
+            "Accept": "application/json",
+        })
+        with urllib.request.urlopen(req, timeout=20) as r:
+            return json.loads(r.read())
+    except Exception:
+        return []
+
+
+def _crypto_squeeze_score(coin: dict) -> dict:
+    """Score crypto 0-100 for squeeze potential."""
+    score = 0
+    signals = []
+
+    price = coin.get("current_price") or 0
+    high24 = coin.get("high_24h") or price
+    low24 = coin.get("low_24h") or price
+    ath = coin.get("ath") or price
+    ath_change = coin.get("ath_change_percentage") or 0
+    change24 = coin.get("price_change_percentage_24h") or 0
+    change7d = coin.get("price_change_percentage_7d_in_currency") or 0
+    vol24 = coin.get("total_volume") or 0
+    mcap = coin.get("market_cap") or 1
+
+    # 1. Volume/mcap ratio (vol surge relative to size)
+    vol_mcap = vol24 / max(mcap, 1)
+    if vol_mcap > 0.5:
+        score += 30; signals.append(f"VOL_MCAP_{round(vol_mcap,2)}x")
+    elif vol_mcap > 0.2:
+        score += 20; signals.append(f"VOL_MCAP_{round(vol_mcap,2)}x")
+    elif vol_mcap > 0.1:
+        score += 10; signals.append(f"VOL_MCAP_{round(vol_mcap,2)}x")
+
+    # 2. Momentum: price near 24h high
+    if high24 > 0:
+        pct = price / high24
+        if pct >= 0.95:
+            score += 25; signals.append("NEAR_24H_HIGH")
+        elif pct >= 0.85:
+            score += 10
+
+    # 3. 24h positive momentum
+    if change24 >= 10:
+        score += 20; signals.append(f"UP_{round(change24,1)}pct_24H")
+    elif change24 >= 5:
+        score += 10; signals.append(f"UP_{round(change24,1)}pct_24H")
+
+    # 4. ATH distance (far from ATH = room to squeeze)
+    if ath_change <= -70:
+        score += 15; signals.append("FAR_FROM_ATH")
+    elif ath_change <= -40:
+        score += 8
+
+    # 5. 7d reversal setup
+    if change7d < -20 and change24 > 5:
+        score += 10; signals.append("7D_REVERSAL")
+
+    score = min(100, score)
+    grade = "A" if score >= 70 else "B" if score >= 50 else "C" if score >= 30 else "D"
+    return {"score": score, "grade": grade, "signals": signals}
+
+
+def api_crypto_squeeze_scanner(params: dict | None = None) -> dict:
+    """Crypto squeeze scanner — ranks tokens by vol/mcap surge, momentum, ATH distance.
+
+    Req: { limit?: 5-20, price_max?: float (USD), ids?: csv of CoinGecko ids }
+    Returns top squeeze setups with score, grade, signals.
+    """
+    import time as _t
+    p = params or {}
+    limit = min(20, max(1, int(p.get("limit") or 10)))
+    price_max = float(p.get("price_max") or 999999)
+    custom = p.get("ids") or p.get("symbols") or ""
+    if custom:
+        universe = [s.strip().lower() for s in str(custom).split(",") if s.strip()][:50]
+    else:
+        universe = _CRYPTO_SQUEEZE_UNIVERSE
+    t0 = _t.time()
+    coins = _fetch_coingecko_prices(universe)
+    results = []
+    for c in coins:
+        if (c.get("current_price") or 0) > price_max:
+            continue
+        s = _crypto_squeeze_score(c)
+        results.append({
+            "id": c.get("id"),
+            "symbol": (c.get("symbol") or "").upper(),
+            "name": c.get("name"),
+            "price": c.get("current_price"),
+            "market_cap": c.get("market_cap"),
+            "volume_24h": c.get("total_volume"),
+            "change_24h": round(c.get("price_change_percentage_24h") or 0, 2),
+            "change_7d": round(c.get("price_change_percentage_7d_in_currency") or 0, 2),
+            "ath_change_pct": round(c.get("ath_change_percentage") or 0, 2),
+            **s,
+        })
+    results.sort(key=lambda x: x["score"], reverse=True)
+    return _ok({
+        "timestamp": _now(),
+        "scan_ms": int((_t.time() - t0) * 1000),
+        "universe_size": len(universe),
+        "coins_fetched": len(results),
+        "top_setups": results[:limit],
+        "offering": "crypto_squeeze_scanner",
+        "source": "coingecko_markets_api",
+        "note": "Score 0-100: vol/mcap surge, 24h momentum, ATH distance, reversal. Grade A>=70.",
+    })
+
+
+def api_crypto_penny_squeeze_scanner(params: dict | None = None) -> dict:
+    """Crypto penny squeeze scanner — sub-$1 tokens ranked by squeeze score.
+
+    Req: { limit?: 5-20, price_max?: 1.0, ids?: csv of CoinGecko ids }
+    Returns top low-cap squeeze setups with momentum + vol surge signals.
+    """
+    import time as _t
+    p = params or {}
+    limit = min(20, max(1, int(p.get("limit") or 10)))
+    price_max = min(1.0, float(p.get("price_max") or 1.0))
+    custom = p.get("ids") or p.get("symbols") or ""
+    if custom:
+        universe = [s.strip().lower() for s in str(custom).split(",") if s.strip()][:50]
+    else:
+        universe = list(dict.fromkeys(_CRYPTO_PENNY_UNIVERSE + _CRYPTO_SQUEEZE_UNIVERSE))
+    t0 = _t.time()
+    coins = _fetch_coingecko_prices(universe)
+    results = []
+    for c in coins:
+        price = c.get("current_price") or 0
+        if price > price_max or price <= 0:
+            continue
+        s = _crypto_squeeze_score(c)
+        results.append({
+            "id": c.get("id"),
+            "symbol": (c.get("symbol") or "").upper(),
+            "name": c.get("name"),
+            "price": price,
+            "market_cap": c.get("market_cap"),
+            "volume_24h": c.get("total_volume"),
+            "change_24h": round(c.get("price_change_percentage_24h") or 0, 2),
+            "change_7d": round(c.get("price_change_percentage_7d_in_currency") or 0, 2),
+            "ath_change_pct": round(c.get("ath_change_percentage") or 0, 2),
+            **s,
+        })
+    results.sort(key=lambda x: x["score"], reverse=True)
+    return _ok({
+        "timestamp": _now(),
+        "scan_ms": int((_t.time() - t0) * 1000),
+        "universe_size": len(universe),
+        "coins_fetched": len(results),
+        "top_setups": results[:limit],
+        "offering": "crypto_penny_squeeze_scanner",
+        "source": "coingecko_markets_api",
+        "note": "Sub-$1 crypto squeeze: vol/mcap surge, reversal pattern, ATH distance. Grade A>=70.",
+    })
+
 EXTRA_ENDPOINTS = {
     "crypto_price": api_crypto_price,
     "crypto_global": api_crypto_global,
