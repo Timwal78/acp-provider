@@ -597,6 +597,15 @@ def build_amb_document(
             base = request.host_url.rstrip("/")
         except Exception:
             base = "https://acp-x402-scriptmasterlabs.onrender.com"
+    try:
+        from beacon import public_base
+
+        base = public_base(base)
+    except Exception:
+        if base.startswith("http://"):
+            base = "https://" + base[len("http://") :]
+        if not base.startswith("https://"):
+            base = "https://" + base.lstrip("/")
 
     rep = _rating_to_score(os.environ.get("ACP_RATING", "5.00"))
     # Prefer live health-ish defaults; operators can override via env
@@ -751,7 +760,14 @@ def amb_json():
         resp = jsonify({})
         resp.status_code = 204
     else:
-        base = request.host_url.rstrip("/")
+        try:
+            from beacon import public_base
+
+            base = public_base(request.host_url)
+        except Exception:
+            base = request.host_url.rstrip("/")
+            if base.startswith("http://"):
+                base = "https://" + base[len("http://") :]
         # optional ?limit=N for scanners
         lim = request.args.get("limit", type=int)
         record_amb_traffic("amb_fetch", _agent_key_from_request())
@@ -764,7 +780,15 @@ def amb_json():
     resp.headers["Access-Control-Allow-Methods"] = "GET,OPTIONS"
     resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Accept"
     resp.headers["X-AMB-Version"] = AMB_VERSION
-    resp.headers["Link"] = f'<{request.host_url.rstrip("/")}/.well-known/amb.json>; rel="agent-magnet-beacon"'
+    try:
+        from beacon import public_base
+
+        link_base = public_base(request.host_url)
+    except Exception:
+        link_base = request.host_url.rstrip("/")
+        if link_base.startswith("http://"):
+            link_base = "https://" + link_base[len("http://") :]
+    resp.headers["Link"] = f'<{link_base}/.well-known/amb.json>; rel="agent-magnet-beacon"'
     return resp
 
 
@@ -842,9 +866,16 @@ def free_magnet_tools() -> list[dict[str, Any]]:
 def handle_free_magnet_tool(name: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
     args = args or {}
     try:
-        base = request.host_url.rstrip("/")
+        from beacon import public_base
+
+        base = public_base(request.host_url)
     except Exception:
-        base = "https://acp-x402-scriptmasterlabs.onrender.com"
+        try:
+            base = request.host_url.rstrip("/")
+            if base.startswith("http://"):
+                base = "https://" + base[len("http://") :]
+        except Exception:
+            base = "https://acp-x402-scriptmasterlabs.onrender.com"
     lim = args.get("limit")
     try:
         lim = int(lim) if lim is not None else None
