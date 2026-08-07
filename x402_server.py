@@ -244,11 +244,13 @@ from a2a_agent_card import a2a_bp
 from mcp_server import mcp_bp
 from amb import amb_bp
 from beacon import beacon_bp
+from vendos_bp import vendos_bp
 
 app.register_blueprint(a2a_bp)
 app.register_blueprint(mcp_bp)
 app.register_blueprint(amb_bp)
 app.register_blueprint(beacon_bp)
+app.register_blueprint(vendos_bp)
 
 # Routes now served:
 #   GET /.well-known/agent.json  → A2A Protocol agent card (48 capabilities)
@@ -259,6 +261,10 @@ app.register_blueprint(beacon_bp)
 #   GET /.well-known/amb.json    → Agent Magnet Beacons (multi-rail payTo 0x7233)
 #   GET /.well-known/x402.json   → BEACON universal manifest (intent discovery)
 #   POST /beacon/query|negotiate|attest → BEACON indexer + bid + quality web-of-trust
+#   GET /marketplace/listings    → VendOS listing catalog (JSON)
+#   POST /marketplace/list       → VendOS create listing (402→pay→accept)
+#   GET /marketplace/stats       → VendOS aggregate stats
+#   GET /vendos/status           → VendOS health + listing count
 
 
 
