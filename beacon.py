@@ -70,6 +70,16 @@ def _now_ms() -> int:
     return int(time.time() * 1000)
 
 
+def public_base(url: str | None = None) -> str:
+    """Force https public base (Render terminates TLS; request.host_url is often http)."""
+    b = (url or DEFAULT_BASE).strip().rstrip("/")
+    if b.startswith("http://"):
+        b = "https://" + b[len("http://") :]
+    if not b.startswith("https://"):
+        b = "https://" + b.lstrip("/")
+    return b
+
+
 def _empty_store() -> dict[str, Any]:
     return {"attestations": [], "reputation": {}, "crawl": []}
 
@@ -240,7 +250,7 @@ def build_capability(tool: str, base: str, price: str) -> dict[str, Any]:
 
 
 def build_manifest(base_url: str | None = None, limit: int | None = None) -> dict[str, Any]:
-    base = (base_url or DEFAULT_BASE).rstrip("/")
+    base = public_base(base_url or DEFAULT_BASE)
     prices = _load_prices()
     tools = _load_endpoints()
     # lead money wedges
@@ -355,7 +365,7 @@ def query_capabilities(
     base_url: str | None = None,
 ) -> dict[str, Any]:
     t0 = time.perf_counter()
-    base = (base_url or DEFAULT_BASE).rstrip("/")
+    base = public_base(base_url or DEFAULT_BASE)
     manifest = build_manifest(base_url=base)
     qvec = _tokenize(q or "crypto data feed")
     hits = []
@@ -419,7 +429,7 @@ def negotiate(
     batch_size: int = 1,
     base_url: str | None = None,
 ) -> dict[str, Any]:
-    base = (base_url or DEFAULT_BASE).rstrip("/")
+    base = public_base(base_url or DEFAULT_BASE)
     prices = _load_prices()
     # normalize tool name
     t = (tool or "").strip().replace("-", "_")
@@ -641,7 +651,7 @@ def _cors(resp):
 def beacon_manifest():
     if request.method == "OPTIONS":
         return _cors(jsonify({})), 204
-    base = request.host_url.rstrip("/")
+    base = public_base(request.host_url)
     lim = request.args.get("limit", type=int)
     doc = build_manifest(base_url=base, limit=lim)
     resp = jsonify(doc)
@@ -655,7 +665,7 @@ def beacon_manifest():
 def beacon_query():
     if request.method == "OPTIONS":
         return _cors(jsonify({})), 204
-    base = request.host_url.rstrip("/")
+    base = public_base(request.host_url)
     body = request.get_json(silent=True) or {}
     q = (
         body.get("q")
@@ -698,7 +708,7 @@ def beacon_query():
 def beacon_negotiate():
     if request.method == "OPTIONS":
         return _cors(jsonify({})), 204
-    base = request.host_url.rstrip("/")
+    base = public_base(request.host_url)
     body = request.get_json(silent=True) or {}
     tool = body.get("tool") or body.get("offering") or request.args.get("tool") or ""
     bid = body.get("bid", request.args.get("bid", type=float))
@@ -763,7 +773,7 @@ def beacon_crawl():
 def beacon_status():
     if request.method == "OPTIONS":
         return _cors(jsonify({})), 204
-    base = request.host_url.rstrip("/")
+    base = public_base(request.host_url)
     store = _load_store()
     return _cors(
         jsonify(
@@ -775,9 +785,17 @@ def beacon_status():
                 "query": f"{base}/beacon/query",
                 "negotiate": f"{base}/beacon/negotiate",
                 "attest": f"{base}/beacon/attest",
+                "reputation": f"{base}/beacon/reputation/{{tool}}",
+                "crawl": f"{base}/beacon/crawl",
                 "attestation_count": len(store.get("attestations") or []),
                 "reputation_tools": len(store.get("reputation") or {}),
                 "payTo": AGENT_WALLET,
+                "wedges": [
+                    f"{base}/x402/gas-tracker",
+                    f"{base}/x402/crypto-price",
+                    f"{base}/x402/rwa-aggregates",
+                ],
+                "docs": "https://www.scriptmasterlabs.com/x402-beacon.html",
             }
         )
     )

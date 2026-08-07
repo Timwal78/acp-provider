@@ -714,8 +714,11 @@ def build_amb_document(
             "amb": f"{base}/.well-known/amb.json",
             "agent": f"{base}/.well-known/agent.json",
             "x402": f"{base}/.well-known/x402",
+            "beacon": f"{base}/.well-known/x402.json",
+            "beacon_query": f"{base}/beacon/query",
             "mcp": f"{base}/mcp",
             "www": "https://www.scriptmasterlabs.com/.well-known/amb.json",
+            "docs": "https://www.scriptmasterlabs.com/x402-beacon.html",
         },
         "beacons": beacons,
         "note": (

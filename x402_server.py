@@ -280,18 +280,34 @@ def status():
     # Root stays 200 for AWS/human catalog. Scanners that need a paid URL must
     # hit paid_demo_url (real HTTP 402), not bare /.
     paid = "https://acp-x402-scriptmasterlabs.onrender.com/x402/crypto-price"
+    base = "https://acp-x402-scriptmasterlabs.onrender.com"
     return jsonify({
         "service": "acp-provider x402 HTTP layer",
         "agent": "scriptmasterlabs",
         "endpoints": sorted(f"/x402/{n.replace('_', '-')}" for n in PROVIDER_ENDPOINTS),
         "free_tier": False,
         "x402": True,
+        "beacon": True,
+        "beacon_version": "1.0.0",
         "price_floor_usdc": "0.001",
         "network": "eip155:8453",
+        "payTo": "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa",
         "paid_demo_url": paid,
-        "discovery": "https://acp-x402-scriptmasterlabs.onrender.com/.well-known/x402",
-        "note": "Root is a catalog (HTTP 200). Every /x402/* snack requires payment. Point x402scan/Bazaar at paid_demo_url for a live 402 challenge.",
-        "scanner_hint": "GET paid_demo_url without payment → HTTP 402",
+        "wedges": [
+            f"{base}/x402/gas-tracker",
+            f"{base}/x402/crypto-price",
+            f"{base}/x402/rwa-aggregates",
+        ],
+        "discovery": f"{base}/.well-known/x402",
+        "beacon_manifest": f"{base}/.well-known/x402.json",
+        "beacon_query": f"{base}/beacon/query",
+        "beacon_negotiate": f"{base}/beacon/negotiate",
+        "beacon_attest": f"{base}/beacon/attest",
+        "beacon_status": f"{base}/beacon/status",
+        "amb": f"{base}/.well-known/amb.json",
+        "docs": "https://www.scriptmasterlabs.com/x402-beacon.html",
+        "note": "Root is a catalog (HTTP 200). Every /x402/* snack requires payment. BEACON adds intent query + bid negotiate + attest on top of x402.",
+        "scanner_hint": "GET paid_demo_url without payment → HTTP 402; GET /.well-known/x402.json for BEACON manifest",
     })
 
 

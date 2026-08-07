@@ -658,6 +658,26 @@ def _facilitator(path: str, payment_payload: dict, requirements: dict) -> dict:
         return {"isValid": False, "success": False, "invalidReason": f"facilitator {r.status_code}: {r.text[:200]}"}
 
 
+def _beacon_auto_attest(path: str, ok: bool = True, latency_ms: float = 0.0, agent_id: str = "paid") -> None:
+    """Best-effort quality receipt after successful paid execution."""
+    try:
+        from beacon import attest
+
+        tool = (path or "").rstrip("/").split("/")[-1].replace("-", "_")
+        if not tool or tool == "x402":
+            return
+        attest(
+            tool=tool,
+            ok=ok,
+            latency_ms=float(latency_ms or 0),
+            schema_valid=ok,
+            agent_id=str(agent_id or "paid")[:120],
+            note="auto_paid_success",
+        )
+    except Exception:
+        pass
+
+
 def x402_guard(price_usdc: str, description: str, discoverable: bool = True, path: str | None = None, name: str | None = None, query_params: dict | None = None):
     """path should be the public hyphen route, e.g. /x402/rwa-aggregates.
     Never rely on fn.__name__ — nested views all become _view and break x402scan.
@@ -791,6 +811,7 @@ def x402_guard(price_usdc: str, description: str, discoverable: bool = True, pat
                     _fire_payment_discord(v.get("from") or "unknown", request.path, 2)
                 except Exception:
                     pass
+                _beacon_auto_attest(request.path, ok=True, agent_id=v.get("from") or "unknown")
                 return resp
 
             header = request.headers.get("X-PAYMENT")
@@ -824,6 +845,7 @@ def x402_guard(price_usdc: str, description: str, discoverable: bool = True, pat
                     _fire_payment_discord(payer, request.path, 2)
                 except Exception:
                     pass
+                _beacon_auto_attest(request.path, ok=True, agent_id=payer)
             return resp
         return wrapper
     return decorator
@@ -1105,6 +1127,22 @@ def _openapi_discovery_doc():
         "routable": True,
         "origin": base,
         "homepage": "https://www.scriptmasterlabs.com",
+        "beacon": {
+            "version": "1.0.0",
+            "manifest": f"{base}/.well-known/x402.json",
+            "query": f"{base}/beacon/query",
+            "negotiate": f"{base}/beacon/negotiate",
+            "attest": f"{base}/beacon/attest",
+            "status": f"{base}/beacon/status",
+            "bid_header": "X-x402-Bid",
+            "negotiate_header": "X-x402-Negotiate",
+            "docs": "https://www.scriptmasterlabs.com/x402-beacon.html",
+            "wedges": [
+                f"{base}/x402/gas-tracker",
+                f"{base}/x402/crypto-price",
+                f"{base}/x402/rwa-aggregates",
+            ],
+        },
     }
 
 
