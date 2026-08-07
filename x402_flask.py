@@ -664,15 +664,45 @@ def _beacon_auto_attest(path: str, ok: bool = True, latency_ms: float = 0.0, age
         from beacon import attest
 
         tool = (path or "").rstrip("/").split("/")[-1].replace("-", "_")
-        if not tool or tool == "x402":
+        if not tool:
             return
         attest(
             tool=tool,
             ok=ok,
             latency_ms=float(latency_ms or 0),
-            schema_valid=ok,
-            agent_id=str(agent_id or "paid")[:120],
+            schema_valid=True,
+            agent_id=agent_id or "paid",
             note="auto_paid_success",
+        )
+    except Exception:
+        pass
+
+
+def _beacon_record_settlement(
+    *,
+    path: str,
+    amount=None,
+    asset: str = "USDC",
+    chain: str = "base",
+    rail: str = "x402",
+    tx: str | None = None,
+    payer: str | None = None,
+    latency_ms: float | None = None,
+) -> None:
+    try:
+        from beacon import record_settlement
+
+        record_settlement(
+            route=path or "",
+            amount=amount,
+            asset=asset,
+            chain=chain,
+            rail=rail,
+            tx=tx,
+            payer=payer,
+            latency_ms=latency_ms,
+            ok=True,
+            source="acp-x402",
         )
     except Exception:
         pass
@@ -812,6 +842,15 @@ def x402_guard(price_usdc: str, description: str, discoverable: bool = True, pat
                 except Exception:
                     pass
                 _beacon_auto_attest(request.path, ok=True, agent_id=v.get("from") or "unknown")
+                _beacon_record_settlement(
+                    path=request.path,
+                    amount=v.get("amount") or reqs.get("amount") or reqs.get("maxAmountRequired"),
+                    asset=str(v.get("asset") or "USDC"),
+                    chain=str(chain or "base"),
+                    rail=rail,
+                    tx=tx_hash,
+                    payer=v.get("from") or "unknown",
+                )
                 return resp
 
             header = request.headers.get("X-PAYMENT")
@@ -846,6 +885,15 @@ def x402_guard(price_usdc: str, description: str, discoverable: bool = True, pat
                 except Exception:
                     pass
                 _beacon_auto_attest(request.path, ok=True, agent_id=payer)
+                _beacon_record_settlement(
+                    path=request.path,
+                    amount=reqs.get("amount") or reqs.get("maxAmountRequired") or settle.get("amount"),
+                    asset="USDC",
+                    chain="base",
+                    rail="facilitator",
+                    tx=settle.get("transaction") or settle.get("txHash") or settle.get("tx"),
+                    payer=payer,
+                )
             return resp
         return wrapper
     return decorator

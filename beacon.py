@@ -526,6 +526,145 @@ def apply_negotiate_headers(response, tool: str | None = None) -> None:
     response.headers["X-BEACON-Version"] = BEACON_VERSION
 
 
+def _hash_payer(payer: str | None) -> str:
+    p = (payer or "anon").strip().lower()
+    return hashlib.sha256(p.encode()).hexdigest()[:12]
+
+
+def record_settlement(
+    *,
+    route: str,
+    amount: str | float | int | None = None,
+    asset: str = "USDC",
+    chain: str = "base",
+    rail: str = "x402",
+    tx: str | None = None,
+    payer: str | None = None,
+    latency_ms: float | None = None,
+    ok: bool = True,
+    source: str = "acp-x402",
+) -> dict[str, Any]:
+    """Append a paid settlement receipt (privacy: payer is hashed)."""
+    store = _load_store()
+    now = _now_ms()
+    path = (route or "").strip()
+    if path.startswith("http"):
+        try:
+            path = "/" + path.split("://", 1)[1].split("/", 1)[1]
+        except Exception:
+            pass
+    if not path.startswith("/"):
+        path = "/" + path
+    tool = path.rstrip("/").split("/")[-1].replace("-", "_") if path else ""
+    amt = amount
+    if amt is None:
+        prices = _load_prices()
+        amt = prices.get(tool, "0.001")
+    try:
+        # accept base units (>=100) or decimal USDC
+        n = float(amt)
+        if n >= 100:
+            amt_s = f"{n / 1e6:.6f}".rstrip("0").rstrip(".")
+        else:
+            amt_s = f"{n:.6f}".rstrip("0").rstrip(".")
+    except Exception:
+        amt_s = str(amt or "0.001")
+    tx_s = (tx or "").strip()
+    tx_short = (tx_s[:10] + "…" + tx_s[-6:]) if len(tx_s) > 18 else (tx_s or None)
+    entry = {
+        "ts": now,
+        "ts_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now / 1000.0)),
+        "kind": "settlement",
+        "ok": bool(ok),
+        "route": path[:200],
+        "tool": tool,
+        "amount": amt_s,
+        "asset": (asset or "USDC")[:24],
+        "chain": (chain or "base")[:32],
+        "rail": (rail or "x402")[:48],
+        "tx": tx_short,
+        "tx_full_hash": ("sha256:" + hashlib.sha256(tx_s.encode()).hexdigest()[:16]) if tx_s else None,
+        "payer_hash": _hash_payer(payer),
+        "latency_ms": round(float(latency_ms), 1) if latency_ms is not None else None,
+        "source": source,
+        "payTo": AGENT_WALLET,
+    }
+    blob = json.dumps(entry, sort_keys=True).encode()
+    entry["receipt_hash"] = "sha256:" + hashlib.sha256(blob).hexdigest()
+    settlements = store.setdefault("settlements", [])
+    settlements.append(entry)
+    if len(settlements) > 500:
+        store["settlements"] = settlements[-500:]
+    _save_store(store)
+    return entry
+
+
+def list_receipts(limit: int = 10) -> dict[str, Any]:
+    """Public last-N receipt theater payload (settlements + quality attestations)."""
+    store = _load_store()
+    lim = max(1, min(int(limit or 10), 25))
+    settlements = list(store.get("settlements") or [])
+    settlements.sort(key=lambda x: int(x.get("ts") or 0), reverse=True)
+    atts = list(store.get("attestations") or [])
+    atts.sort(key=lambda x: int(x.get("ts") or 0), reverse=True)
+    quality = []
+    for a in atts[:lim]:
+        quality.append(
+            {
+                "ts": a.get("ts"),
+                "ts_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(int(a.get("ts") or 0) / 1000.0))
+                if a.get("ts")
+                else None,
+                "kind": "attestation",
+                "ok": bool(a.get("ok")),
+                "route": f"/x402/{str(a.get('tool') or '').replace('_', '-')}",
+                "tool": a.get("tool"),
+                "amount": None,
+                "asset": None,
+                "chain": None,
+                "rail": "attest",
+                "tx": None,
+                "payer_hash": a.get("agent"),
+                "latency_ms": a.get("latency_ms"),
+                "source": "beacon-attest",
+                "receipt_hash": a.get("receipt_hash"),
+                "score_hint": None,
+            }
+        )
+    # merge timeline
+    merged = []
+    for s in settlements:
+        merged.append(dict(s))
+    for q in quality:
+        merged.append(q)
+    merged.sort(key=lambda x: int(x.get("ts") or 0), reverse=True)
+    top = merged[:lim]
+    # attach reputation scores
+    for row in top:
+        tool = str(row.get("tool") or "").replace("-", "_")
+        if tool:
+            rep = reputation_for(tool)
+            row["attest_score"] = rep.get("score")
+            row["attest_n"] = rep.get("n")
+    base = public_base(DEFAULT_BASE)
+    return {
+        "ok": True,
+        "beacon_version": BEACON_VERSION,
+        "limit": lim,
+        "count": len(top),
+        "settlement_count": len(settlements),
+        "attestation_count": len(atts),
+        "receipts": top,
+        "payTo": AGENT_WALLET,
+        "feeds": {
+            "acp_receipts": f"{base}/beacon/receipts",
+            "mcp_stats": "https://mcp-x402.onrender.com/x402/stats",
+            "docs": "https://www.scriptmasterlabs.com/x402-beacon.html",
+        },
+        "note": "payer addresses are hashed; tx shown truncated. Empty settlements means no paid x402 on this host since last ephemeral disk cycle — MCP recentSettled may still have rows.",
+    }
+
+
 def attest(
     *,
     tool: str,
@@ -769,6 +908,17 @@ def beacon_crawl():
     return _cors(jsonify(crawl_well_known(urls)))
 
 
+@beacon_bp.route("/beacon/receipts", methods=["GET", "OPTIONS"])
+def beacon_receipts():
+    if request.method == "OPTIONS":
+        return _cors(jsonify({})), 204
+    lim = request.args.get("limit", 10, type=int)
+    doc = list_receipts(limit=lim or 10)
+    resp = jsonify(doc)
+    resp.headers["Cache-Control"] = "no-store"
+    return _cors(resp)
+
+
 @beacon_bp.route("/beacon/status", methods=["GET", "OPTIONS"])
 def beacon_status():
     if request.method == "OPTIONS":
@@ -785,9 +935,11 @@ def beacon_status():
                 "query": f"{base}/beacon/query",
                 "negotiate": f"{base}/beacon/negotiate",
                 "attest": f"{base}/beacon/attest",
+                "receipts": f"{base}/beacon/receipts",
                 "reputation": f"{base}/beacon/reputation/{{tool}}",
                 "crawl": f"{base}/beacon/crawl",
                 "attestation_count": len(store.get("attestations") or []),
+                "settlement_count": len(store.get("settlements") or []),
                 "reputation_tools": len(store.get("reputation") or {}),
                 "payTo": AGENT_WALLET,
                 "wedges": [
