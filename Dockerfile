@@ -25,6 +25,7 @@ COPY x402_server.py .
 COPY a2a_agent_card.py .
 COPY mcp_server.py .
 COPY amb.py .
+COPY beacon.py .
 COPY rwa_engine.py .
 COPY catalog_extra.py .
 COPY a2a_broadcast.py .
