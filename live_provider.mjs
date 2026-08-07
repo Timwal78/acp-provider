@@ -131,49 +131,207 @@ function createSignFn(publicKeyB64) {
   };
 }
 
-function offeringFromSession(session) {
-  // Prefer description / memo fields when present
-  const memo =
-    session?.requirement?.name ||
-    session?.offeringName ||
-    session?.description ||
+// REST/hint cache: onChainJobId -> { offering, requirements, price }
+const JOB_META = new Map();
+
+function normalizeOffering(name) {
+  if (!name || typeof name !== "string") return null;
+  let s = name.trim();
+  if (!s || s.length > 80) return null;
+  // strip noise
+  s = s.replace(/^offering[:=]\s*/i, "").trim();
+  // never treat JSON blobs as offering names
+  if (s.startsWith("{") || s.startsWith("[")) return null;
+  // snake_case / simple tokens only
+  if (!/^[a-zA-Z][a-zA-Z0-9_./-]{1,79}$/.test(s)) return null;
+  return s;
+}
+
+function offeringFromSession(session, jobId) {
+  // 1) REST/hint cache written by poller (authoritative — job.description IS offering)
+  if (jobId && JOB_META.has(String(jobId))) {
+    const m = JOB_META.get(String(jobId));
+    const o = normalizeOffering(m?.offering);
+    if (o) return o;
+  }
+  // 2) session fields
+  const candidates = [
+    session?.offeringName,
+    session?.offering,
+    session?.description,
+    session?.requirement?.name,
+    session?.requirement?.offering,
+    session?.memo,
+    session?.serviceName,
+  ];
+  for (const c of candidates) {
+    const o = normalizeOffering(c);
+    if (o) return o;
+  }
+  // 3) nested job object if SDK attaches it
+  const job = session?.job || session?.meta || {};
+  for (const c of [job.description, job.offeringName, job.offering, job.name]) {
+    const o = normalizeOffering(c);
+    if (o) return o;
+  }
+  // DO NOT default to gas_tracker — that poisoned Clawpump crypto_price jobs
+  return null;
+}
+
+function requirementsFromSession(session, jobId) {
+  if (jobId && JOB_META.has(String(jobId))) {
+    const m = JOB_META.get(String(jobId));
+    if (m?.requirements && typeof m.requirements === "object") {
+      return m.requirements;
+    }
+  }
+  const r =
+    session?.requirements ||
+    session?.requirement ||
+    session?.request ||
+    session?.input ||
     null;
-  if (typeof memo === "string" && memo.length && memo.length < 80) return memo;
-  return process.env.DEFAULT_OFFERING || "gas_tracker";
+  if (r && typeof r === "object" && !Array.isArray(r)) {
+    // unwrap { name, ...params } shapes
+    if (r.params && typeof r.params === "object") return r.params;
+    const copy = { ...r };
+    delete copy.name;
+    delete copy.offering;
+    return copy;
+  }
+  if (typeof r === "string") {
+    try {
+      const p = JSON.parse(r);
+      if (p && typeof p === "object") return p;
+    } catch {}
+  }
+  return {};
 }
 
 function buildDeliverable(offering, requirements) {
+  if (!offering) {
+    return JSON.stringify({
+      result: JSON.stringify({
+        error: "offering_unresolved",
+        note: "provider could not resolve offering name — refusing gas_tracker default",
+        provider: "scriptmasterlabs",
+        ts: new Date().toISOString(),
+      }),
+    });
+  }
   const reqJson = JSON.stringify(requirements || {});
   const py = `
 import json,sys
 sys.path.insert(0,'/app')
+sys.path.insert(0,'.')
 try:
   from provider import ENDPOINTS
   name=${JSON.stringify(offering)}
   reqs=json.loads(${JSON.stringify(reqJson)})
+  # normalize common aliases from buyers
+  aliases={
+    "crypto_price_lookup":"crypto_price",
+    "price":"crypto_price",
+    "gas":"gas_tracker",
+    "tvl":"defi_tvl_ranking",
+    "defi_tvl":"defi_tvl_ranking",
+  }
+  name=aliases.get(name, name)
   fn=ENDPOINTS.get(name)
   if not fn:
-    print(json.dumps({"ok":True,"offering":name,"note":"unknown offering fallback","provider":"scriptmasterlabs","ts":__import__('datetime').datetime.utcnow().isoformat()+"Z"}))
+    # last-resort: catalog_extra direct
+    try:
+      from catalog_extra import EXTRA_ENDPOINTS
+      fn=EXTRA_ENDPOINTS.get(name)
+    except Exception:
+      fn=None
+  if not fn:
+    print(json.dumps({"result": json.dumps({"ok":False,"error":"unknown_offering","offering":name,"provider":"scriptmasterlabs"})}))
   else:
-    print(json.dumps(fn(reqs), default=str))
+    out=fn(reqs if isinstance(reqs,dict) else {})
+    # ACP deliverable schema expects {result: string}
+    if isinstance(out, dict) and "result" in out:
+      print(json.dumps(out, default=str))
+    else:
+      print(json.dumps({"result": json.dumps(out, default=str)}))
 except Exception as e:
-  print(json.dumps({"ok":True,"offering":${JSON.stringify(offering)},"error":str(e),"provider":"scriptmasterlabs","ts":__import__('datetime').datetime.utcnow().isoformat()+"Z"}))
+  print(json.dumps({"result": json.dumps({"ok":False,"offering":${JSON.stringify(offering)},"error":str(e),"provider":"scriptmasterlabs"})}))
 `;
   const r = spawnSync("python3", ["-c", py], {
     encoding: "utf8",
     timeout: 25000,
     env: process.env,
+    cwd: process.cwd(),
   });
   const out = (r.stdout || "").trim();
-  if (out.startsWith("{") || out.startsWith("[")) return out;
+  // take last JSON line (in case of warnings)
+  const lines = out.split("\n").filter((l) => l.trim().startsWith("{"));
+  const pick = lines.length ? lines[lines.length - 1] : out;
+  if (pick.startsWith("{") || pick.startsWith("[")) return pick;
   return JSON.stringify({
-    ok: true,
-    offering,
-    source: "scriptmasterlabs",
-    note: "fallback deliverable",
-    stderr: (r.stderr || "").slice(0, 200),
-    ts: new Date().toISOString(),
+    result: JSON.stringify({
+      ok: false,
+      offering,
+      source: "scriptmasterlabs",
+      note: "handler_failed",
+      stderr: (r.stderr || "").slice(0, 300),
+      ts: new Date().toISOString(),
+    }),
   });
+}
+
+async function hydrateJobMetaFromHistory(transport, chainId, jobId) {
+  /** Pull offering + requirement JSON from on-chain/history entries. */
+  try {
+    const entries = await transport.getHistory(chainId, Number(jobId) || jobId);
+    if (!entries?.length) return null;
+    let offering = JOB_META.get(String(jobId))?.offering || null;
+    let requirements = JOB_META.get(String(jobId))?.requirements || null;
+    for (const e of entries) {
+      const ct = e?.contentType || e?.event?.type || "";
+      const content = e?.content;
+      // requirement message is usually the buyer params JSON
+      if (
+        (ct === "requirement" || ct === "requirements" || String(ct).includes("requirement")) &&
+        content
+      ) {
+        try {
+          const parsed = typeof content === "string" ? JSON.parse(content) : content;
+          if (parsed && typeof parsed === "object") requirements = parsed;
+        } catch {
+          // plain string requirement
+          if (typeof content === "string" && content.length < 200) {
+            requirements = { q: content };
+          }
+        }
+      }
+      // some stacks put offering in memo/description system events
+      const desc =
+        e?.event?.description ||
+        e?.event?.offering ||
+        e?.offeringName ||
+        e?.description;
+      const o = normalizeOffering(desc);
+      if (o) offering = o;
+    }
+    if (offering || requirements) {
+      const prev = JOB_META.get(String(jobId)) || {};
+      JOB_META.set(String(jobId), {
+        ...prev,
+        offering: offering || prev.offering || null,
+        requirements: requirements || prev.requirements || {},
+        chainId,
+      });
+      return JOB_META.get(String(jobId));
+    }
+  } catch (err) {
+    log({
+      msg: "hydrate_history_err",
+      jobId: String(jobId),
+      error: err?.message || String(err),
+    });
+  }
+  return JOB_META.get(String(jobId)) || null;
 }
 
 async function main() {
@@ -306,22 +464,71 @@ async function main() {
     if (status === "funded" && !submitDone.has(jobId)) {
       inflight.add(key);
       try {
-        const offering = offeringFromSession(session);
-        const deliverable = buildDeliverable(offering, {});
+        // Hydrate offering + buyer requirements from history/REST before execute
+        try {
+          await hydrateJobMetaFromHistory(
+            agent.getTransport(),
+            session.chainId || 8453,
+            jobId
+          );
+        } catch {}
+        let offering = offeringFromSession(session, jobId);
+        let requirements = requirementsFromSession(session, jobId);
+        // If still missing offering, try REST one more time for this job
+        if (!offering) {
+          try {
+            const fresh = await restOpenJobs();
+            const hit = fresh.find((j) => String(j.onChainJobId) === String(jobId));
+            if (hit?.offering) {
+              JOB_META.set(String(jobId), {
+                ...(JOB_META.get(String(jobId)) || {}),
+                offering: hit.offering,
+                requirements: hit.requirements || requirements || {},
+              });
+              offering = normalizeOffering(hit.offering);
+            }
+          } catch {}
+        }
+        if (!offering) {
+          log({
+            msg: "submit_SKIP_no_offering",
+            jobId,
+            source,
+            meta: JOB_META.get(String(jobId)) || null,
+          });
+          // do not mark submitDone — allow retry once meta arrives
+          return;
+        }
+        const deliverable = buildDeliverable(offering, requirements);
         log({
           msg: "submit_begin",
           jobId,
           source,
           offering,
+          reqKeys: Object.keys(requirements || {}),
           bytes: deliverable.length,
+          preview: deliverable.slice(0, 180),
         });
+        // sanity: refuse to submit gas payload for non-gas offerings
+        if (
+          offering !== "gas_tracker" &&
+          /"gas_gwei"|gas_tracker|Gas estimates use free Etherscan/i.test(deliverable)
+        ) {
+          log({
+            msg: "submit_BLOCKED_wrong_payload",
+            jobId,
+            offering,
+            preview: deliverable.slice(0, 200),
+          });
+          return;
+        }
         await session.submit(deliverable);
         submitDone.add(jobId);
-        log({ msg: "submit_OK", jobId, source });
+        log({ msg: "submit_OK", jobId, source, offering });
         try {
           writeFileSync(
             "/tmp/live_submit_ok.json",
-            JSON.stringify({ jobId, ts: Date.now() })
+            JSON.stringify({ jobId, offering, ts: Date.now() })
           );
         } catch {}
       } catch (err) {
@@ -428,10 +635,22 @@ async function main() {
         jobId,
         chainId: j.chainId || 8453,
         jobStatus: st,
-        offering: j.description || null,
+        offering: j.description || j.offeringName || null,
+        requirements: null,
         providerAddress: prov || WALLET,
         clientAddress: client || null,
       });
+      // cache offering for submit path
+      const off = normalizeOffering(j.description || j.offeringName || null);
+      if (off) {
+        const prev = JOB_META.get(jobId) || {};
+        JOB_META.set(jobId, {
+          ...prev,
+          offering: off,
+          price: j.budget || prev.price,
+          chainId: j.chainId || 8453,
+        });
+      }
     }
     return out;
   }
@@ -481,11 +700,21 @@ async function main() {
             try {
               const h = JSON.parse(line);
               if (h.jobId) {
+                const jid = String(h.jobId);
                 jobs.push({
-                  onChainJobId: String(h.jobId),
-                  jobId: String(h.jobId),
+                  onChainJobId: jid,
+                  jobId: jid,
                   chainId: h.chainId || 8453,
+                  offering: h.offering || null,
                 });
+                if (h.offering) {
+                  JOB_META.set(jid, {
+                    ...(JOB_META.get(jid) || {}),
+                    offering: normalizeOffering(h.offering) || h.offering,
+                    price: h.price,
+                    chainId: h.chainId || 8453,
+                  });
+                }
               }
             } catch {}
           }
@@ -493,6 +722,21 @@ async function main() {
           writeFileSync("/tmp/open_jobs_hint.jsonl", "");
         }
       } catch {}
+
+      // For every active job, hydrate offering+requirements from history before handle
+      for (const job of jobs || []) {
+        const jid = String(job.onChainJobId || job.jobId || "");
+        const chainId = job.chainId || 8453;
+        if (!jid) continue;
+        if (job.offering) {
+          JOB_META.set(jid, {
+            ...(JOB_META.get(jid) || {}),
+            offering: normalizeOffering(job.offering) || job.offering,
+            chainId,
+          });
+        }
+        await hydrateJobMetaFromHistory(transport, chainId, jid);
+      }
 
       if (jobs?.length) {
         log({

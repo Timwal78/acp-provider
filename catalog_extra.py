@@ -33,16 +33,67 @@ def _ok(payload: dict) -> dict:
 
 
 def api_crypto_price(params: dict | None = None) -> dict:
-    """Spot price + mcap/vol. Req: { ids?: string csv, vs?: string } default btc,eth,sol"""
+    """Spot price + mcap/vol. Req: { ids?: string csv, vs?: string, symbol?: BTC|ETH|SOL }"""
     p = params or {}
-    ids = (p.get("ids") or p.get("id") or "bitcoin,ethereum,solana").replace(" ", "")
-    vs = (p.get("vs") or "usd").lower()
+    # Buyers (Clawpump) often send {symbol: BTC} not CoinGecko ids
+    sym_map = {
+        "btc": "bitcoin",
+        "bitcoin": "bitcoin",
+        "eth": "ethereum",
+        "ethereum": "ethereum",
+        "sol": "solana",
+        "solana": "solana",
+        "bnb": "binancecoin",
+        "xrp": "ripple",
+        "doge": "dogecoin",
+        "ada": "cardano",
+        "avax": "avalanche-2",
+        "matic": "matic-network",
+        "pol": "matic-network",
+        "link": "chainlink",
+        "pepe": "pepe",
+        "wif": "dogwifcoin",
+        "usdc": "usd-coin",
+        "usdt": "tether",
+    }
+    raw_ids = p.get("ids") or p.get("id") or ""
+    if not raw_ids:
+        sym = (p.get("symbol") or p.get("ticker") or p.get("coin") or "").strip()
+        if sym:
+            parts = []
+            for s in sym.replace(" ", ",").split(","):
+                s = s.strip().lower().lstrip("$")
+                if not s:
+                    continue
+                parts.append(sym_map.get(s, s))
+            raw_ids = ",".join(parts)
+    if not raw_ids:
+        raw_ids = "bitcoin,ethereum,solana"
+    ids = str(raw_ids).replace(" ", "")
+    # map any ticker-looking tokens inside ids csv too
+    mapped = []
+    for part in ids.split(","):
+        pl = part.strip().lower()
+        if not pl:
+            continue
+        mapped.append(sym_map.get(pl, pl))
+    ids = ",".join(mapped) if mapped else "bitcoin,ethereum,solana"
+    vs = (p.get("vs") or p.get("currency") or "usd").lower()
     url = (
         "https://api.coingecko.com/api/v3/simple/price"
         f"?ids={ids}&vs_currencies={vs}&include_market_cap=true&include_24hr_vol=true&include_24hr_change=true"
     )
     data = _get(url)
-    return _ok({"timestamp": _now(), "vs": vs, "prices": data, "source": "coingecko_simple_price"})
+    return _ok(
+        {
+            "timestamp": _now(),
+            "vs": vs,
+            "ids": ids,
+            "prices": data,
+            "source": "coingecko_simple_price",
+            "offering": "crypto_price",
+        }
+    )
 
 
 def api_crypto_global(params: dict | None = None) -> dict:
