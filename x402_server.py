@@ -243,10 +243,12 @@ for _name, _fn in PROVIDER_ENDPOINTS.items():
 from a2a_agent_card import a2a_bp
 from mcp_server import mcp_bp
 from amb import amb_bp
+from beacon import beacon_bp
 
 app.register_blueprint(a2a_bp)
 app.register_blueprint(mcp_bp)
 app.register_blueprint(amb_bp)
+app.register_blueprint(beacon_bp)
 
 # Routes now served:
 #   GET /.well-known/agent.json  → A2A Protocol agent card (48 capabilities)
@@ -255,6 +257,8 @@ app.register_blueprint(amb_bp)
 #   GET /mcp/sse                  → MCP SSE notification stream
 #   GET /.well-known/x402        → x402 payment rails (existing, unchanged)
 #   GET /.well-known/amb.json    → Agent Magnet Beacons (multi-rail payTo 0x7233)
+#   GET /.well-known/x402.json   → BEACON universal manifest (intent discovery)
+#   POST /beacon/query|negotiate|attest → BEACON indexer + bid + quality web-of-trust
 
 
 

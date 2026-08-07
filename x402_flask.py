@@ -609,8 +609,18 @@ def _402(requirements: dict, reason: str = "payment_required", query_params: dic
     resp.headers["Content-Type"] = "application/json; charset=utf-8"
     resp.headers["PAYMENT-REQUIRED"] = header402
     resp.headers["X-PAYMENT-REQUIRED"] = header402
-    resp.headers["Access-Control-Expose-Headers"] = "PAYMENT-REQUIRED, X-PAYMENT-REQUIRED, X-PAYMENT-RESPONSE"
+    resp.headers["Access-Control-Expose-Headers"] = (
+        "PAYMENT-REQUIRED, X-PAYMENT-REQUIRED, X-PAYMENT-RESPONSE, "
+        "X-x402-Negotiate, X-x402-Ask, X-x402-Floor, X-x402-Ceiling, X-x402-Batch-Size, X-BEACON-Version"
+    )
     resp.headers["Access-Control-Allow-Origin"] = "*"
+    # BEACON machine-level bid negotiation (optional headers on request)
+    try:
+        from beacon import apply_negotiate_headers
+
+        apply_negotiate_headers(resp)
+    except Exception:
+        pass
     return resp
 
 
