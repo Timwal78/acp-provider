@@ -32,6 +32,47 @@ def _ok(payload: dict) -> dict:
     return {"result": json.dumps(payload, default=str)}
 
 
+
+def _crypto_price_fallback(ids: str, vs: str) -> dict:
+    """Public fallbacks when CoinGecko rate-limits (429)."""
+    # Map coingecko ids -> binance symbols for major assets
+    binance_map = {
+        "bitcoin": "BTCUSDT",
+        "ethereum": "ETHUSDT",
+        "solana": "SOLUSDT",
+        "binancecoin": "BNBUSDT",
+        "ripple": "XRPUSDT",
+        "dogecoin": "DOGEUSDT",
+        "cardano": "ADAUSDT",
+        "avalanche-2": "AVAXUSDT",
+        "matic-network": "MATICUSDT",
+        "chainlink": "LINKUSDT",
+        "usd-coin": "USDCUSDT",
+        "tether": "USDTUSDT",
+    }
+    out = {}
+    vs = (vs or "usd").lower()
+    for cid in [x.strip() for x in ids.split(",") if x.strip()]:
+        sym = binance_map.get(cid)
+        if not sym:
+            continue
+        if vs not in ("usd", "usdt"):
+            continue
+        if sym == "USDTUSDT":
+            out[cid] = {vs: 1.0, "source": "stable"}
+            continue
+        data = _get(f"https://api.binance.com/api/v3/ticker/24hr?symbol={sym}")
+        if isinstance(data, dict) and data.get("lastPrice"):
+            try:
+                px = float(data["lastPrice"])
+                ch = float(data.get("priceChangePercent") or 0)
+                vol = float(data.get("quoteVolume") or 0)
+                out[cid] = {vs: px, f"{vs}_24h_change": ch, f"{vs}_24h_vol": vol, "source": "binance_24hr"}
+            except Exception:
+                pass
+    return out
+
+
 def api_crypto_price(params: dict | None = None) -> dict:
     """Spot price + mcap/vol. Req: { ids?: string csv, vs?: string, symbol?: BTC|ETH|SOL }"""
     p = params or {}
@@ -84,13 +125,22 @@ def api_crypto_price(params: dict | None = None) -> dict:
         f"?ids={ids}&vs_currencies={vs}&include_market_cap=true&include_24hr_vol=true&include_24hr_change=true"
     )
     data = _get(url)
+    source = "coingecko_simple_price"
+    # CoinGecko 429 / error object → Binance fallback for majors
+    if not isinstance(data, dict) or data.get("error") or all(
+        (not isinstance(v, dict)) for v in data.values()
+    ):
+        fb = _crypto_price_fallback(ids, vs)
+        if fb:
+            data = fb
+            source = "binance_fallback"
     return _ok(
         {
             "timestamp": _now(),
             "vs": vs,
             "ids": ids,
             "prices": data,
-            "source": "coingecko_simple_price",
+            "source": source,
             "offering": "crypto_price",
         }
     )
