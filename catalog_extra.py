@@ -263,28 +263,38 @@ def api_btc_mempool_fees(params: dict | None = None) -> dict:
     })
 
 
+def _spot_major(coin_id: str, key: str) -> dict:
+    """Spot convenience for btc/eth/sol with CoinGecko → Binance fallback."""
+    wrapped = api_crypto_price({"ids": coin_id, "vs": "usd"})
+    try:
+        inner = json.loads(wrapped.get("result") or "{}")
+    except Exception:
+        inner = {}
+    prices = inner.get("prices") if isinstance(inner, dict) else {}
+    row = prices.get(coin_id) if isinstance(prices, dict) else None
+    return _ok(
+        {
+            "timestamp": _now(),
+            key: row,
+            "source": (inner.get("source") if isinstance(inner, dict) else None) or "crypto_price",
+            "offering": f"{key}_price" if key != "bitcoin" else "btc_price",
+        }
+    )
+
+
 def api_eth_price(params: dict | None = None) -> dict:
     """ETH spot convenience endpoint."""
-    data = _get(
-        "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd,btc&include_24hr_change=true&include_market_cap=true"
-    )
-    return _ok({"timestamp": _now(), "ethereum": data.get("ethereum") if isinstance(data, dict) else data, "source": "coingecko"})
+    return _spot_major("ethereum", "ethereum")
 
 
 def api_btc_price(params: dict | None = None) -> dict:
     """BTC spot convenience endpoint."""
-    data = _get(
-        "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd,eur&include_24hr_change=true&include_market_cap=true"
-    )
-    return _ok({"timestamp": _now(), "bitcoin": data.get("bitcoin") if isinstance(data, dict) else data, "source": "coingecko"})
+    return _spot_major("bitcoin", "bitcoin")
 
 
 def api_sol_price(params: dict | None = None) -> dict:
     """SOL spot convenience endpoint."""
-    data = _get(
-        "https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd&include_24hr_change=true&include_market_cap=true"
-    )
-    return _ok({"timestamp": _now(), "solana": data.get("solana") if isinstance(data, dict) else data, "source": "coingecko"})
+    return _spot_major("solana", "solana")
 
 
 def api_hyperliquid_meta(params: dict | None = None) -> dict:
