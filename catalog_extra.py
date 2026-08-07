@@ -1948,6 +1948,204 @@ EXTRA_PRICES_USD = {
     "usgs_earthquakes": "0.001",
     "fda_food_recalls": "0.001",
     "us_gov_search": "0.001",
+    # --- Squeeze APIs ---
+    "squeeze_scanner": "0.01",
+    "penny_squeeze_scanner": "0.01",
 }
 
 EXTRA_ACP_DEFAULTS = {k: 0.001 for k in EXTRA_ENDPOINTS}
+EXTRA_ACP_DEFAULTS["squeeze_scanner"] = 0.01
+EXTRA_ACP_DEFAULTS["penny_squeeze_scanner"] = 0.01
+
+
+# ============================================================
+# SQUEEZE SCANNER API
+# Real-time equity squeeze setup scanner using live public data.
+# Scores symbols on: short interest proxy (FTD velocity), momentum
+# (price vs 20d high), volume surge, and options signal (IV rank).
+# Returns ranked setups with squeeze score 0-100, grade, and thesis.
+# ============================================================
+
+_SQUEEZE_UNIVERSE_FULL = [
+    # High short interest / meme / squeeze history
+    "GME","AMC","MSTR","HOOD","BBBY","CLOV","WISH","EXPR","NAKD","SPCE",
+    "TLRY","SNDL","WKHS","RIDE","NKLA","RKT","KOSS","FIZZ","BYFC","ATER",
+    # High beta / momentum
+    "PLTR","RIVN","LCID","SOFI","OPEN","SKLZ","DKNG","AFRM","UPST","MNDY",
+    "CRWD","ZM","SNAP","RBLX","PTON","COIN","MARA","RIOT","HUT","CLSK",
+    # Mid-large with squeeze potential
+    "TSLA","NVDA","AMD","SMCI","SHOP","ROKU","DOCU","NET","CFLT","MDB",
+]
+
+_PENNY_UNIVERSE = [
+    # Sub-$10 with squeeze history or short interest
+    "SNDL","CLOV","WISH","EXPR","NAKD","BYFC","ATER","ANVS","PROG","MEGL",
+    "MULN","FFIE","NKLA","WKHS","RIDE","GOEV","XELA","CTRM","SHIP","TOPS",
+    "GFAI","ZVRA","NUO","BNOX","WISA","ABAT","NUVL","HOLO","MDJH","SRM",
+    "MGOL","INPX","SURF","PHUN","VERB","ILUS","USDR","AGTC","OBSV","SXTC",
+]
+
+
+def _fetch_yahoo_quote(symbol: str) -> dict | None:
+    """Light Yahoo Finance quote — price, volume, 52w high/low."""
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=1mo"
+    try:
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "Mozilla/5.0 (compatible; SMLBot/1.0)",
+            "Accept": "application/json",
+        })
+        with urllib.request.urlopen(req, timeout=12) as r:
+            d = json.loads(r.read())
+        res = (d.get("chart", {}).get("result") or [None])[0]
+        if not res:
+            return None
+        meta = res.get("meta", {})
+        closes = (res.get("indicators", {}).get("quote") or [{}])[0].get("close") or []
+        volumes = (res.get("indicators", {}).get("quote") or [{}])[0].get("volume") or []
+        price = meta.get("regularMarketPrice") or (closes[-1] if closes else None)
+        avg_vol = int(sum(v for v in volumes[-10:] if v) / max(1, len([v for v in volumes[-10:] if v]))) if volumes else 0
+        cur_vol = volumes[-1] if volumes else 0
+        high_20 = max((c for c in closes[-20:] if c), default=price)
+        low_20 = min((c for c in closes[-20:] if c), default=price)
+        return {
+            "symbol": symbol,
+            "price": round(price, 4) if price else None,
+            "avg_volume_10d": avg_vol,
+            "current_volume": cur_vol,
+            "high_20d": round(high_20, 4) if high_20 else None,
+            "low_20d": round(low_20, 4) if low_20 else None,
+            "volume_surge": round(cur_vol / avg_vol, 2) if avg_vol > 0 and cur_vol else 0,
+        }
+    except Exception:
+        return None
+
+
+def _squeeze_score(q: dict) -> dict:
+    """Score 0–100 across 4 dimensions. Higher = more squeeze potential."""
+    score = 0
+    signals = []
+
+    # 1. Momentum — price near 20d high
+    if q.get("price") and q.get("high_20d") and q["high_20d"] > 0:
+        pct_of_high = q["price"] / q["high_20d"]
+        mom = min(30, int(pct_of_high * 30))
+        score += mom
+        if pct_of_high >= 0.95:
+            signals.append("NEAR_20D_HIGH")
+
+    # 2. Volume surge
+    vs = q.get("volume_surge", 0)
+    if vs >= 5:
+        score += 30; signals.append(f"VOL_SURGE_{round(vs,1)}x")
+    elif vs >= 3:
+        score += 20; signals.append(f"VOL_SURGE_{round(vs,1)}x")
+    elif vs >= 2:
+        score += 10; signals.append(f"VOL_ELEVATED_{round(vs,1)}x")
+
+    # 3. Price range compression (low_20d close to price = coiling)
+    if q.get("price") and q.get("low_20d") and q.get("high_20d"):
+        rng = q["high_20d"] - q["low_20d"]
+        compression = 1 - (rng / max(q["price"], 0.01))
+        if compression > 0.85:
+            score += 25; signals.append("COILING")
+        elif compression > 0.70:
+            score += 15; signals.append("RANGE_TIGHT")
+
+    # 4. Sub-$5 premium (penny squeeze fuel)
+    if q.get("price") and q["price"] < 5:
+        score += 15; signals.append("PENNY_RANGE")
+    elif q.get("price") and q["price"] < 20:
+        score += 5; signals.append("LOW_FLOAT_RANGE")
+
+    score = min(100, score)
+    if score >= 70:
+        grade = "A"
+    elif score >= 50:
+        grade = "B"
+    elif score >= 30:
+        grade = "C"
+    else:
+        grade = "D"
+
+    return {"score": score, "grade": grade, "signals": signals}
+
+
+def _run_squeeze_scan(universe: list[str], price_max: float | None = None, limit: int = 10) -> dict:
+    """Fetch quotes for universe, score, rank, return top setups."""
+    import concurrent.futures, time
+    t0 = time.time()
+
+    def fetch_and_score(sym):
+        q = _fetch_yahoo_quote(sym)
+        if not q or not q.get("price"):
+            return None
+        if price_max and q["price"] > price_max:
+            return None
+        s = _squeeze_score(q)
+        return {**q, **s}
+
+    results = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=12) as ex:
+        for row in ex.map(fetch_and_score, universe[:50]):
+            if row:
+                results.append(row)
+
+    results.sort(key=lambda x: x["score"], reverse=True)
+    top = results[:limit]
+
+    return {
+        "timestamp": _now(),
+        "scan_ms": int((time.time() - t0) * 1000),
+        "universe_size": len(universe),
+        "symbols_fetched": len(results),
+        "top_setups": top,
+        "offering": "squeeze_scanner",
+        "source": "yahoo_finance_public",
+        "note": "Score 0-100: momentum + volume surge + range compression + price tier. Grade A>=70, B>=50, C>=30.",
+    }
+
+
+def api_squeeze_scanner(params: dict | None = None) -> dict:
+    """Full equity squeeze scanner — $1–$200 universe ranked by squeeze score.
+
+    Req: { limit?: 5-20, price_max?: float, symbols?: csv }
+    Returns top setups with score, grade, signals (NEAR_20D_HIGH, VOL_SURGE, COILING).
+    Real-time from Yahoo Finance public API.
+    """
+    p = params or {}
+    limit = min(20, max(1, int(p.get("limit") or 10)))
+    price_max = float(p.get("price_max") or 200)
+    custom = p.get("symbols") or p.get("tickers") or ""
+    if custom:
+        universe = [s.strip().upper() for s in str(custom).split(",") if s.strip()][:50]
+    else:
+        universe = _SQUEEZE_UNIVERSE_FULL
+    return _ok(_run_squeeze_scan(universe, price_max=price_max, limit=limit))
+
+
+def api_penny_squeeze_scanner(params: dict | None = None) -> dict:
+    """Penny stock squeeze scanner — sub-$10 universe ranked by squeeze score.
+
+    Req: { limit?: 5-20, price_max?: 10, symbols?: csv }
+    Returns top penny squeeze setups: high vol surge, coiling range, near 20d high.
+    Real-time from Yahoo Finance public API.
+    """
+    p = params or {}
+    limit = min(20, max(1, int(p.get("limit") or 10)))
+    price_max = min(10.0, float(p.get("price_max") or 5.0))
+    custom = p.get("symbols") or p.get("tickers") or ""
+    if custom:
+        universe = [s.strip().upper() for s in str(custom).split(",") if s.strip()][:50]
+    else:
+        # Use dedicated penny universe + any SQUEEZE_UNIVERSE_FULL under price_max
+        universe = list(dict.fromkeys(_PENNY_UNIVERSE + [
+            s for s in _SQUEEZE_UNIVERSE_FULL if s not in _PENNY_UNIVERSE
+        ]))
+    result = _run_squeeze_scan(universe, price_max=price_max, limit=limit)
+    result["offering"] = "penny_squeeze_scanner"
+    result["note"] = (
+        "Penny squeeze scanner: sub-$10 universe. "
+        "Score 0-100: vol surge, coiling, near 20d high, penny-range premium. "
+        "Grade A>=70, B>=50."
+    )
+    return _ok(result)

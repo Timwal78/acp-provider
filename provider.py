@@ -2715,6 +2715,8 @@ ENDPOINTS = {
     "rugpull_detector": api_rugpull_detector,
     "honeypot_check": api_rugpull_detector,  # alias — same GoPlus honeypot/rug path
     "token_security_audit": api_token_security_audit,
+    "squeeze_scanner": api_squeeze_scanner,
+    "penny_squeeze_scanner": api_penny_squeeze_scanner,
     "wallet_analysis": api_wallet_analyzer,  # SEO alias
     "defi_yield": api_defi_yield_rates,  # SEO alias
 
