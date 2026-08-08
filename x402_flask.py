@@ -276,6 +276,8 @@ def _verify_solana_usdc_tx(tx_hash: str, pay_to: str, min_units: int) -> dict:
     sig = (tx_hash or "").strip()
     if not sig or sig.startswith("0x") or len(sig) < 64 or len(sig) > 128:
         return {"ok": False, "error": "invalid_solana_sig_format"}
+    if sig.lower() in _REDEEMED_TXS:
+        return {"ok": False, "error": "payment_already_redeemed"}
     sol_pay = (pay_to or SOLANA_PAY_TO or "").strip()
     if not sol_pay or sol_pay.startswith("0x"):
         return {"ok": False, "error": "invalid_solana_payTo"}
