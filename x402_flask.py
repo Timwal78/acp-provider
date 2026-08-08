@@ -718,6 +718,17 @@ def _facilitator(path: str, payment_payload: dict, requirements: dict) -> dict:
                     break
             else:
                 data["invalidReason"] = f"facilitator {r.status_code}: {json.dumps(data)[:200]}"
+        # CDP pairs a coarse `invalidReason` enum with a specific
+        # `invalidMessage`. Forwarding only the enum turned
+        # "execution reverted: ERC20: transfer amount exceeds balance" into a
+        # bare "invalid_payload" for the payer - which reads like a bug in this
+        # server rather than an empty wallet, and is impossible to act on.
+        if failed:
+            detail = data.get("invalidMessage") or data.get("errorMessage")
+            reason = str(data.get("invalidReason") or "")
+            if detail and str(detail) not in reason:
+                data["invalidReason"] = f"{reason}: {str(detail)[:200]}".lstrip(": ")
+
         if failed:
             # A bare reason code is not enough to debug with. `invalid_payload`
             # is CDP's catch-all for a payload that failed schema/oneOf matching
