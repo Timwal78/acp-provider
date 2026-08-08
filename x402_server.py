@@ -283,6 +283,16 @@ def favicon():
     from flask import Response
     return Response(svg, mimetype="image/svg+xml")
 
+@app.route("/health", methods=["GET"])
+@app.route("/v1/health", methods=["GET"])
+def health():
+    return jsonify({"ok": True, "service": "acp-x402", "status": "healthy", "version": "1.0.0"}), 200
+
+@app.route("/docs", methods=["GET"])
+def docs_redirect():
+    from flask import redirect
+    return redirect("https://www.scriptmasterlabs.com/aws-quickstart", code=302)
+
 @app.route("/")
 @app.route("/api/status")
 def status():
