@@ -1110,20 +1110,27 @@ def _openapi_discovery_doc():
             "paid": True,
         })
 
-    # free discovery aliases
-    for free_path, op in [
-        ("/.well-known/x402", "openApiDiscovery"),
-        ("/x402/openapi.json", "openApiJsonAlias"),
-        ("/openapi.json", "openApiJson"),
-    ]:
-        paths[free_path] = {
-            "get": {
-                "operationId": op,
-                "summary": "OpenAPI/x402 discovery document (free).",
-                "security": [],
-                "responses": {"200": {"description": "OpenAPI spec."}},
-            }
-        }
+    # Free discovery aliases are deliberately NOT written into `paths`.
+    #
+    # This document doubles as our x402 discovery file, and ecosystem crawlers
+    # treat every entry under `paths` as a payable x402 resource: they probe it
+    # and expect an HTTP 402 challenge. These three routes are the discovery
+    # document itself and correctly answer 200, so each probe is scored as a
+    # failed check. Marking them `security: []` does not help -- the crawlers
+    # key off `paths` membership, not the security block.
+    #
+    # Real consequence: x402-trust graded /openapi.json an F (score 24.2,
+    # "0.0% uptime, errors on all 63 checks") purely because we advertised a
+    # free meta-route as a paid endpoint. That F is public and sits alongside
+    # our 48 B-graded endpoints on the same provider record.
+    #
+    # They stay discoverable below under `x-discovery-documents`, outside the
+    # payable surface.
+    discovery_documents = [
+        {"url": f"{base}/.well-known/x402", "rel": "x402-discovery", "paid": False},
+        {"url": f"{base}/openapi.json", "rel": "openapi", "paid": False},
+        {"url": f"{base}/x402/openapi.json", "rel": "openapi-alias", "paid": False},
+    ]
 
     return {
         "openapi": "3.1.0",
@@ -1142,6 +1149,7 @@ def _openapi_discovery_doc():
             },
         },
         "servers": [{"url": base}],
+        "x-discovery-documents": discovery_documents,
         "x-service-info": {
             "operator": "ScriptMasterLabs",
             "agent": "scriptmasterlabs",
