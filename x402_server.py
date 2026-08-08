@@ -289,6 +289,52 @@ def health():
     return jsonify({"ok": True, "service": "acp-x402", "status": "healthy", "version": "1.0.0"}), 200
 
 
+def _beacon_storage_report(blockers: list) -> dict:
+    """Is the beacon reputation ledger on durable storage?
+
+    render.yaml declaring a disk only takes effect for Blueprint-managed
+    services. If the service was created by hand, the disk is silently absent
+    and BEACON_STORE keeps defaulting to /tmp, which Render wipes on every
+    deploy - so attestations can never accumulate and reputation is pinned to
+    cold-start priors forever. That failure is invisible from outside, which is
+    exactly why it is reported here.
+    """
+    import os as _os
+    from pathlib import Path as _Path
+
+    path = _os.environ.get("BEACON_STORE", "/tmp/sml_beacon_store.json")
+    parent = _Path(path).parent
+    ephemeral = str(path).startswith("/tmp")
+    mount_present = parent.is_dir()
+    writable = bool(mount_present and _os.access(parent, _os.W_OK))
+
+    if ephemeral:
+        blockers.append(
+            f"BEACON_STORE={path} is on ephemeral storage - attestations are "
+            "wiped on every deploy, so reputation can never leave cold_start_prior"
+        )
+    elif not writable:
+        blockers.append(f"BEACON_STORE={path} is not writable - attestations cannot persist")
+
+    report = {
+        "path": path,
+        "durable": (not ephemeral) and writable,
+        "ephemeral_tmp": ephemeral,
+        "mount_present": mount_present,
+        "writable": writable,
+        "file_exists": _Path(path).exists(),
+    }
+    try:
+        from beacon import _load_store  # type: ignore
+
+        store = _load_store() or {}
+        report["attestations"] = len(store.get("attestations") or [])
+        report["settlements"] = len(store.get("settlements") or [])
+    except Exception:
+        pass
+    return report
+
+
 @app.route("/x402/readiness", methods=["GET"])
 def x402_readiness():
     """Settlement readiness report. Booleans and non-secret hosts only.
@@ -329,6 +375,7 @@ def x402_readiness():
                 "mainnet": is_mainnet,
                 "pay_to": pay_to,
                 "bazaar_ready": cdp_configured and is_mainnet and bool(pay_to),
+                "reputation_storage": _beacon_storage_report(blockers),
                 "blockers": blockers,
             }
         ), 200
