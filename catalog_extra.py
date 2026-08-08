@@ -1914,6 +1914,7 @@ def api_crypto_squeeze_scanner(params: dict | None = None) -> dict:
         "timestamp": _now(),
         "scan_ms": int((_t.time() - t0) * 1000),
         "universe_size": len(universe),
+        "universe_scanned": len(universe[:50]),
         "coins_fetched": len(results),
         "top_setups": results[:limit],
         "offering": "crypto_squeeze_scanner",
@@ -1962,6 +1963,7 @@ def api_crypto_penny_squeeze_scanner(params: dict | None = None) -> dict:
         "timestamp": _now(),
         "scan_ms": int((_t.time() - t0) * 1000),
         "universe_size": len(universe),
+        "universe_scanned": len(universe[:50]),
         "coins_fetched": len(results),
         "top_setups": results[:limit],
         "offering": "crypto_penny_squeeze_scanner",
@@ -2187,10 +2189,33 @@ _PENNY_UNIVERSE = [
     "MGOL","INPX","SURF","PHUN","VERB","ILUS","USDR","AGTC","OBSV","SXTC",
 ]
 
+_QUOTE_MIN_BARS = 10
+_QUOTE_MAX_DRIFT = 3.0
+
 
 def _fetch_yahoo_quote(symbol: str) -> dict | None:
-    """Light Yahoo Finance quote — price, volume, 52w high/low."""
-    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=1mo"
+    """Daily bars plus a validated spot price for one symbol.
+
+    This is defensive because upstream data for illiquid OTC tickers is not
+    trustworthy. Three failures observed in production:
+
+      XELA: meta regularMarketPrice was 0.011 while the last five daily closes
+            were all 0.0003 -- a stale quote 37x away from where the stock
+            actually traded. Compared against the recent range that produced
+            price/high = 6.9, which the old scorer clamped to full momentum
+            marks and tagged NEAR_20D_HIGH. Corrupt data ranked first.
+
+      XELA: the 20-day window was taken by slicing the raw close array, which
+            still contained nulls, and filtering afterwards. That yields fewer
+            than 20 real observations over an arbitrary window -- the reported
+            high of 0.0016 came from a window that excluded the actual high.
+
+      ILUS: max daily close was 0.0003 but max daily high was 0.0006, so a
+            field named high_20d built from closes understated the true high
+            by half.
+    """
+    url = (f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+           f"?interval=1d&range=2mo")
     try:
         req = urllib.request.Request(url, headers={
             "User-Agent": "Mozilla/5.0 (compatible; SMLBot/1.0)",
@@ -2201,39 +2226,92 @@ def _fetch_yahoo_quote(symbol: str) -> dict | None:
         res = (d.get("chart", {}).get("result") or [None])[0]
         if not res:
             return None
-        meta = res.get("meta", {})
-        closes = (res.get("indicators", {}).get("quote") or [{}])[0].get("close") or []
-        volumes = (res.get("indicators", {}).get("quote") or [{}])[0].get("volume") or []
-        price = meta.get("regularMarketPrice") or (closes[-1] if closes else None)
-        avg_vol = int(sum(v for v in volumes[-10:] if v) / max(1, len([v for v in volumes[-10:] if v]))) if volumes else 0
-        cur_vol = volumes[-1] if volumes else 0
-        high_20 = max((c for c in closes[-20:] if c), default=price)
-        low_20 = min((c for c in closes[-20:] if c), default=price)
+        meta = res.get("meta", {}) or {}
+        qd = (res.get("indicators", {}).get("quote") or [{}])[0]
+        ts = res.get("timestamp") or []
+        closes = qd.get("close") or []
+        highs = qd.get("high") or []
+        lows = qd.get("low") or []
+        vols = qd.get("volume") or []
+
+        # Drop incomplete bars BEFORE windowing, and keep each bar's fields
+        # together so the high, low, close and volume always describe the
+        # same session.
+        bars = []
+        for i in range(min(len(ts), len(closes), len(highs), len(lows), len(vols))):
+            c, h, lo = closes[i], highs[i], lows[i]
+            if c is None or h is None or lo is None or c <= 0:
+                continue
+            bars.append((ts[i], h, lo, c, vols[i] or 0))
+        if len(bars) < _QUOTE_MIN_BARS:
+            return None
+
+        window = bars[-20:]
+        high_20 = max(b[1] for b in window)   # real intraday highs, not closes
+        low_20 = min(b[2] for b in window)
+        last_close = bars[-1][3]
+
+        # Trust the live quote only when it agrees with the series it is about
+        # to be compared against. Otherwise use the last close and say so.
+        flags = []
+        spot = meta.get("regularMarketPrice")
+        if not spot or spot <= 0:
+            price = last_close
+        elif max(spot / last_close, last_close / spot) > _QUOTE_MAX_DRIFT:
+            price = last_close
+            flags.append("STALE_QUOTE_IGNORED")
+        else:
+            price = spot
+
+        # The final bar is the in-progress session. Averaging it into the
+        # baseline compares a partial day against full days and reads low all
+        # morning, so the baseline uses completed sessions only.
+        vol_hist = [b[4] for b in bars[:-1][-10:] if b[4]]
+        avg_vol = int(sum(vol_hist) / len(vol_hist)) if vol_hist else 0
+        cur_vol = bars[-1][4]
+        partial = (datetime.now(timezone.utc).date()
+                   == datetime.fromtimestamp(bars[-1][0], timezone.utc).date())
+
+        if high_20 > 0 and price > high_20 * 1.05:
+            flags.append("PRICE_ABOVE_RANGE")
+
         return {
             "symbol": symbol,
-            "price": round(price, 4) if price else None,
+            "price": round(price, 6),
             "avg_volume_10d": avg_vol,
             "current_volume": cur_vol,
-            "high_20d": round(high_20, 4) if high_20 else None,
-            "low_20d": round(low_20, 4) if low_20 else None,
+            "high_20d": round(high_20, 6),
+            "low_20d": round(low_20, 6),
             "volume_surge": round(cur_vol / avg_vol, 2) if avg_vol > 0 and cur_vol else 0,
+            "bars_used": len(window),
+            "range_basis": "daily_high_low",
+            "partial_session": partial,
+            "data_flags": flags,
         }
     except Exception:
         return None
 
 
 def _squeeze_score(q: dict) -> dict:
-    """Score 0–100 across 4 dimensions. Higher = more squeeze potential."""
+    """Score 0-100 across 4 dimensions. Higher = more squeeze potential."""
     score = 0
-    signals = []
+    signals: list[str] = []
+    price = q.get("price") or 0
+    high_20 = q.get("high_20d") or 0
+    low_20 = q.get("low_20d") or 0
 
-    # 1. Momentum — price near 20d high
-    if q.get("price") and q.get("high_20d") and q["high_20d"] > 0:
-        pct_of_high = q["price"] / q["high_20d"]
-        mom = min(30, int(pct_of_high * 30))
-        score += mom
-        if pct_of_high >= 0.95:
-            signals.append("NEAR_20D_HIGH")
+    # 1. Momentum -- where price sits inside its own 20-day range.
+    if price > 0 and high_20 > 0:
+        pct_of_high = price / high_20
+        if pct_of_high > 1.05:
+            # Impossible against the same series, so award nothing. Clamping
+            # this to full marks is exactly what let a stale quote outrank
+            # every genuine setup.
+            signals.append("RANGE_INCONSISTENT")
+        else:
+            score += min(30, int(min(pct_of_high, 1.0) * 30))
+            if pct_of_high >= 0.95:
+                signals.append("NEAR_20D_HIGH")
 
     # 2. Volume surge
     vs = q.get("volume_surge", 0)
@@ -2244,22 +2322,28 @@ def _squeeze_score(q: dict) -> dict:
     elif vs >= 2:
         score += 10; signals.append(f"VOL_ELEVATED_{round(vs,1)}x")
 
-    # 3. Price range compression (low_20d close to price = coiling)
-    if q.get("price") and q.get("low_20d") and q.get("high_20d"):
-        rng = q["high_20d"] - q["low_20d"]
-        compression = 1 - (rng / max(q["price"], 0.01))
+    # 3. Range compression, measured against the stock's own price. The old
+    # denominator was max(price, 0.01), which pinned every sub-penny name to a
+    # 0.01 floor: ILUS at 0.0001 with a 0.0002 range scored as 98% compressed
+    # when its range was in fact twice its price.
+    if price > 0 and high_20 >= low_20 > 0:
+        compression = 1 - ((high_20 - low_20) / price)
         if compression > 0.85:
             score += 25; signals.append("COILING")
         elif compression > 0.70:
             score += 15; signals.append("RANGE_TIGHT")
 
     # 4. Sub-$5 premium (penny squeeze fuel)
-    if q.get("price") and q["price"] < 5:
+    if 0 < price < 5:
         score += 15; signals.append("PENNY_RANGE")
-    elif q.get("price") and q["price"] < 20:
+    elif 0 < price < 20:
         score += 5; signals.append("LOW_FLOAT_RANGE")
 
-    score = min(100, score)
+    for f in (q.get("data_flags") or []):
+        if f not in signals:
+            signals.append(f)
+
+    score = max(0, min(100, score))
     if score >= 70:
         grade = "A"
     elif score >= 50:
@@ -2299,6 +2383,7 @@ def _run_squeeze_scan(universe: list[str], price_max: float | None = None, limit
         "timestamp": _now(),
         "scan_ms": int((time.time() - t0) * 1000),
         "universe_size": len(universe),
+        "universe_scanned": len(universe[:50]),
         "symbols_fetched": len(results),
         "top_setups": top,
         "offering": "squeeze_scanner",
