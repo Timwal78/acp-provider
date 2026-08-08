@@ -627,9 +627,19 @@ def _402(requirements: dict, reason: str = "payment_required", query_params: dic
 
 
 def _facilitator(path: str, payment_payload: dict, requirements: dict) -> dict:
-    host = FACILITATOR.split("://", 1)[-1].split("/", 1)[0]
+    # The CDP JWT 'uri' claim must match the FULL request path, not just the
+    # trailing route. FACILITATOR carries a path prefix
+    # (https://api.cdp.coinbase.com/platform/v2/x402), so signing bare
+    # "/verify" produced 'POST api.cdp.coinbase.com/verify' while the request
+    # actually went to /platform/v2/x402/verify -> CDP rejected every call with
+    # 401 Unauthorized. Credentials were valid the whole time; the claim was not.
+    from urllib.parse import urlparse as _urlparse
+
+    _f = _urlparse(FACILITATOR)
+    host = _f.netloc
+    signed_path = (_f.path or "").rstrip("/") + path
     try:
-        headers = _cdp_auth_headers("POST", host, path)
+        headers = _cdp_auth_headers("POST", host, signed_path)
     except Exception as e:
         logger.error("[x402] CDP auth header build failed: %s", e)
         return {"isValid": False, "success": False, "invalidReason": f"cdp_auth_error: {e}"}
