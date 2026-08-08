@@ -665,9 +665,33 @@ def _facilitator(path: str, payment_payload: dict, requirements: dict) -> dict:
 
     r = requests.post(f"{FACILITATOR}{path}", json=body, headers=headers, timeout=30)
     try:
-        return r.json()
+        data = r.json()
     except Exception:
         return {"isValid": False, "success": False, "invalidReason": f"facilitator {r.status_code}: {r.text[:200]}"}
+
+    # CDP does not always populate `invalidReason`; it may name the failure
+    # errorMessage/error/message/reason, or send an HTTP error with a body.
+    # Without this, a real rejection (insufficient funds, expired auth, bad
+    # nonce) reached the payer as "invalid payment: unknown", which is
+    # indistinguishable from a server bug and impossible to act on.
+    if isinstance(data, dict):
+        failed = data.get("isValid") is False or data.get("success") is False or r.status_code >= 400
+        if failed and not data.get("invalidReason"):
+            for key in ("errorMessage", "error", "message", "reason", "detail", "code"):
+                val = data.get(key)
+                if isinstance(val, dict):
+                    val = val.get("message") or val.get("reason") or json.dumps(val)[:200]
+                if val:
+                    data["invalidReason"] = str(val)[:300]
+                    break
+            else:
+                data["invalidReason"] = f"facilitator {r.status_code}: {json.dumps(data)[:200]}"
+        if failed:
+            logger.error(
+                "[x402] facilitator %s failed: HTTP %s reason=%s",
+                path, r.status_code, data.get("invalidReason"),
+            )
+    return data
 
 
 def _beacon_auto_attest(path: str, ok: bool = True, latency_ms: float = 0.0, agent_id: str = "paid") -> None:
