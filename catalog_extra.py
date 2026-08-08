@@ -236,9 +236,11 @@ def api_stablecoin_mcap(params: dict | None = None) -> dict:
     except Exception:
         limit = 20
     data = _get("https://stablecoins.llama.fi/stablecoins?includePrices=true")
-    pegged = (data or {}).get("peggedAssets") if isinstance(data, dict) else []
+    pegged = (data.get("peggedAssets") if isinstance(data, dict) else None) or []
     rows = []
     for a in pegged[: limit * 2]:
+        if not isinstance(a, dict):
+            continue
         circ = (a.get("circulating") or {}).get("peggedUSD") or (a.get("circulation") or {}).get("peggedUSD")
         rows.append({
             "name": a.get("name"),
@@ -412,9 +414,13 @@ def api_sec_company_tickers(params: dict | None = None) -> dict:
     p = params or {}
     q = (p.get("q") or p.get("ticker") or "").strip().upper()
     data = _get("https://www.sec.gov/files/company_tickers.json")
+    if isinstance(data, dict) and "error" in data and "url" in data:
+        return _ok({"timestamp": _now(), "query": q or None, "count": 0, "companies": [], "source": "sec_company_tickers", "error": data["error"]})
     rows = []
     if isinstance(data, dict):
         for _, row in list(data.items())[:5000]:
+            if not isinstance(row, dict):
+                continue
             t = str(row.get("ticker") or "").upper()
             title = str(row.get("title") or "")
             if not q or q in t or q.lower() in title.lower():
@@ -719,6 +725,8 @@ def api_stablecoin_watch(params: dict | None = None) -> dict:
     pegged = (data or {}).get("peggedAssets") if isinstance(data, dict) else []
     out = []
     for r in (pegged or [])[:40]:
+        if not isinstance(r, dict):
+            continue
         circ = (r.get("circulating") or {})
         out.append({
             "name": r.get("name"),
