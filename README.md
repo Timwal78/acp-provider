@@ -33,19 +33,29 @@ git push -u origin master
    - **Plan**: Starter ($7/mo)
 4. Add these **Environment Variables** (copy-paste each value exactly):
 
+> ⚠️ **REDACTED 2026-08-08.** This section previously had the real, live
+> `ACP_CONFIG_JSON` / `ACP_SIGNER_KEYS_JSON` / `ACP_KEYRING_KEY_B64` values
+> committed here in plaintext — including the encrypted signer keystore
+> *and* its own decryption key, in the same file. That's real credential
+> exposure (git history still has it), not a hypothetical. **Rotate all
+> three on the Virtuals ACP dashboard + Render env vars, then scrub git
+> history (`git filter-repo` or BFG) — this redaction alone does not remove
+> the old values from prior commits.** Until rotated, treat this agent's
+> ACP signing identity as compromised.
+
 ### `ACP_CONFIG_JSON`
 ```
-{"activeWallet":"0x72330994f379a71542e7bd5a4cf99a9d9743f4aa","agents":{"0x72330994f379a71542e7bd5a4cf99a9d9743f4aa":{"id":"019f5f40-c194-7776-b5e1-7a666ce631c0","publicKey":"MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEuEhRLPb6V2+8Muq+T+P2AQej0ztDzu4faXRXC+haeoEj80hz69JN3xlazGa75BT0RKS01t+oI8AeV/Sqa7gqvg==","walletId":"odh4czkyd34w3bgtqzjw1ag9","builderCode":"bc_0gi3t7qi"}}}
+<REDACTED — get the real value from the Render service's env vars or the ACP dashboard, never re-paste it into this file>
 ```
 
 ### `ACP_SIGNER_KEYS_JSON`
 ```
-{"secret":"90f85e14d94762b783e4581e1a0c913665ab5a4538f55fb54b81a2aaf9cbf17a","salt":"1500155606f6c7d5791782e32b0a1a1a","keys":{"MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEuEhRLPb6V2+8Muq+T+P2AQej0ztDzu4faXRXC+haeoEj80hz69JN3xlazGa75BT0RKS01t+oI8AeV/Sqa7gqvg==":{"nonce":"0f600f12ba3b587388927b2f","ciphertext":"814bd3c8ab9121a66c97180eddddf39e47915b995bb9807d77d43686757615d18596483ceb4b4503b074ba09e2016fd0"}}}
+<REDACTED — get the real value from the Render service's env vars or the ACP dashboard, never re-paste it into this file>
 ```
 
 ### `ACP_KEYRING_KEY_B64`
 ```
-cMA6LAYeXjsLDzo85UN+/SDJEAqRD3MgS+fW+pVbhVs=
+<REDACTED — get the real value from the Render service's env vars or the ACP dashboard, never re-paste it into this file>
 ```
 
 ### `PYTHONUNBUFFERED`
