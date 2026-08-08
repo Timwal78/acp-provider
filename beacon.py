@@ -11,6 +11,7 @@ Pillars (live, no new Render service):
 Money path stays existing x402 settle → payTo 0x7233… only.
 """
 from __future__ import annotations
+from contextlib import contextmanager
 
 import hashlib
 import json
@@ -104,6 +105,51 @@ def _load_store() -> dict[str, Any]:
         return data
     except Exception:
         return _empty_store()
+
+
+@contextmanager
+def _store_txn():
+    """Hold an exclusive lock across a full read-modify-write of the store.
+
+    _load_store() and _save_store() each take their own short-lived lock and
+    release it, so the critical section is NOT protected: the app runs under
+    `gunicorn --workers 2`, and two concurrent attestations interleave as
+
+        A load -> B load -> A save -> B save
+
+    where B writes a snapshot taken before A's append, silently discarding A's
+    attestation. The store is a reputation ledger, so a lost write is a
+    permanently missing settlement record with nothing to indicate it vanished.
+
+    Lock a dedicated sidecar file rather than the store itself: _save_store
+    replaces the store via os.replace, so any lock held on the old inode stops
+    protecting the path the moment the swap happens.
+    """
+    lock_path = _STORE.with_suffix(".lock")
+    fh = None
+    try:
+        _STORE.parent.mkdir(parents=True, exist_ok=True)
+        fh = open(lock_path, "a+", encoding="utf-8")
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+    except Exception:
+        # Never make a locking failure fatal to serving a paid request.
+        if fh is not None:
+            try:
+                fh.close()
+            except Exception:
+                pass
+            fh = None
+
+    try:
+        store = _load_store()
+        yield store
+        _save_store(store)
+    finally:
+        if fh is not None:
+            try:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+            finally:
+                fh.close()
 
 
 def _save_store(data: dict[str, Any]) -> None:
@@ -566,57 +612,56 @@ def record_settlement(
     source: str = "acp-x402",
 ) -> dict[str, Any]:
     """Append a paid settlement receipt (privacy: payer is hashed)."""
-    store = _load_store()
-    now = _now_ms()
-    path = (route or "").strip()
-    if path.startswith("http"):
+    with _store_txn() as store:
+        now = _now_ms()
+        path = (route or "").strip()
+        if path.startswith("http"):
+            try:
+                path = "/" + path.split("://", 1)[1].split("/", 1)[1]
+            except Exception:
+                pass
+        if not path.startswith("/"):
+            path = "/" + path
+        tool = path.rstrip("/").split("/")[-1].replace("-", "_") if path else ""
+        amt = amount
+        if amt is None:
+            prices = _load_prices()
+            amt = prices.get(tool, "0.001")
         try:
-            path = "/" + path.split("://", 1)[1].split("/", 1)[1]
+            # accept base units (>=100) or decimal USDC
+            n = float(amt)
+            if n >= 100:
+                amt_s = f"{n / 1e6:.6f}".rstrip("0").rstrip(".")
+            else:
+                amt_s = f"{n:.6f}".rstrip("0").rstrip(".")
         except Exception:
-            pass
-    if not path.startswith("/"):
-        path = "/" + path
-    tool = path.rstrip("/").split("/")[-1].replace("-", "_") if path else ""
-    amt = amount
-    if amt is None:
-        prices = _load_prices()
-        amt = prices.get(tool, "0.001")
-    try:
-        # accept base units (>=100) or decimal USDC
-        n = float(amt)
-        if n >= 100:
-            amt_s = f"{n / 1e6:.6f}".rstrip("0").rstrip(".")
-        else:
-            amt_s = f"{n:.6f}".rstrip("0").rstrip(".")
-    except Exception:
-        amt_s = str(amt or "0.001")
-    tx_s = (tx or "").strip()
-    tx_short = (tx_s[:10] + "…" + tx_s[-6:]) if len(tx_s) > 18 else (tx_s or None)
-    entry = {
-        "ts": now,
-        "ts_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now / 1000.0)),
-        "kind": "settlement",
-        "ok": bool(ok),
-        "route": path[:200],
-        "tool": tool,
-        "amount": amt_s,
-        "asset": (asset or "USDC")[:24],
-        "chain": (chain or "base")[:32],
-        "rail": (rail or "x402")[:48],
-        "tx": tx_short,
-        "tx_full_hash": ("sha256:" + hashlib.sha256(tx_s.encode()).hexdigest()[:16]) if tx_s else None,
-        "payer_hash": _hash_payer(payer),
-        "latency_ms": round(float(latency_ms), 1) if latency_ms is not None else None,
-        "source": source,
-        "payTo": AGENT_WALLET,
-    }
-    blob = json.dumps(entry, sort_keys=True).encode()
-    entry["receipt_hash"] = "sha256:" + hashlib.sha256(blob).hexdigest()
-    settlements = store.setdefault("settlements", [])
-    settlements.append(entry)
-    if len(settlements) > 500:
-        store["settlements"] = settlements[-500:]
-    _save_store(store)
+            amt_s = str(amt or "0.001")
+        tx_s = (tx or "").strip()
+        tx_short = (tx_s[:10] + "…" + tx_s[-6:]) if len(tx_s) > 18 else (tx_s or None)
+        entry = {
+            "ts": now,
+            "ts_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now / 1000.0)),
+            "kind": "settlement",
+            "ok": bool(ok),
+            "route": path[:200],
+            "tool": tool,
+            "amount": amt_s,
+            "asset": (asset or "USDC")[:24],
+            "chain": (chain or "base")[:32],
+            "rail": (rail or "x402")[:48],
+            "tx": tx_short,
+            "tx_full_hash": ("sha256:" + hashlib.sha256(tx_s.encode()).hexdigest()[:16]) if tx_s else None,
+            "payer_hash": _hash_payer(payer),
+            "latency_ms": round(float(latency_ms), 1) if latency_ms is not None else None,
+            "source": source,
+            "payTo": AGENT_WALLET,
+        }
+        blob = json.dumps(entry, sort_keys=True).encode()
+        entry["receipt_hash"] = "sha256:" + hashlib.sha256(blob).hexdigest()
+        settlements = store.setdefault("settlements", [])
+        settlements.append(entry)
+        if len(settlements) > 500:
+            store["settlements"] = settlements[-500:]
     return entry
 
 
@@ -698,59 +743,58 @@ def attest(
     t = (tool or "").strip().replace("-", "_")
     if not t:
         return {"ok": False, "error": "tool_required"}
-    store = _load_store()
-    now = _now_ms()
-    agent = (agent_id or request.headers.get("X-Agent-Id") or "anon")[:120]
-    receipt = {
-        "ts": now,
-        "tool": t,
-        "ok": bool(ok) and bool(schema_valid),
-        "latency_ms": float(latency_ms or 0),
-        "schema_valid": bool(schema_valid),
-        "agent": hashlib.sha256(agent.encode()).hexdigest()[:16],
-        "note": (note or "")[:200],
-    }
-    # sign receipt (HMAC-style content hash — ZK-light placeholder)
-    blob = json.dumps(receipt, sort_keys=True).encode()
-    receipt["receipt_hash"] = "sha256:" + hashlib.sha256(blob).hexdigest()
-    receipt["signature"] = "0x" + hashlib.sha256(
-        f"{receipt['receipt_hash']}|{AGENT_WALLET}|beacon-attest".encode()
-    ).hexdigest()
-
-    atts = store.setdefault("attestations", [])
-    atts.append(receipt)
-    if len(atts) > 5000:
-        store["attestations"] = atts[-5000:]
-
-    # update reputation
-    rep = store.setdefault("reputation", {}).setdefault(
-        t, {"score": 0.92, "n": 0, "avg_latency_ms": 420.0, "ok_rate": 0.99, "ok": 0, "fail": 0}
-    )
-    n = int(rep.get("n", 0)) + 1
-    ok_n = int(rep.get("ok", 0)) + (1 if receipt["ok"] else 0)
-    fail_n = int(rep.get("fail", 0)) + (0 if receipt["ok"] else 1)
-    prev_lat = float(rep.get("avg_latency_ms", 420.0))
-    lat = float(latency_ms or prev_lat)
-    avg_lat = (prev_lat * (n - 1) + lat) / n if n else lat
-    ok_rate = ok_n / n if n else 0.99
-    # score: ok_rate heavy + latency term
-    lat_term = max(0.0, min(1.0, 1.0 - (avg_lat / 5000.0)))
-    score = max(0.05, min(0.999, ok_rate * 0.75 + lat_term * 0.25))
-    # slash harder on fail
-    if not receipt["ok"]:
-        score = max(0.05, score * 0.92)
-    rep.update(
-        {
-            "score": round(score, 4),
-            "n": n,
-            "ok": ok_n,
-            "fail": fail_n,
-            "ok_rate": round(ok_rate, 4),
-            "avg_latency_ms": round(avg_lat, 1),
-            "updated_at": now,
+    with _store_txn() as store:
+        now = _now_ms()
+        agent = (agent_id or request.headers.get("X-Agent-Id") or "anon")[:120]
+        receipt = {
+            "ts": now,
+            "tool": t,
+            "ok": bool(ok) and bool(schema_valid),
+            "latency_ms": float(latency_ms or 0),
+            "schema_valid": bool(schema_valid),
+            "agent": hashlib.sha256(agent.encode()).hexdigest()[:16],
+            "note": (note or "")[:200],
         }
-    )
-    _save_store(store)
+        # sign receipt (HMAC-style content hash — ZK-light placeholder)
+        blob = json.dumps(receipt, sort_keys=True).encode()
+        receipt["receipt_hash"] = "sha256:" + hashlib.sha256(blob).hexdigest()
+        receipt["signature"] = "0x" + hashlib.sha256(
+            f"{receipt['receipt_hash']}|{AGENT_WALLET}|beacon-attest".encode()
+        ).hexdigest()
+
+        atts = store.setdefault("attestations", [])
+        atts.append(receipt)
+        if len(atts) > 5000:
+            store["attestations"] = atts[-5000:]
+
+        # update reputation
+        rep = store.setdefault("reputation", {}).setdefault(
+            t, {"score": 0.92, "n": 0, "avg_latency_ms": 420.0, "ok_rate": 0.99, "ok": 0, "fail": 0}
+        )
+        n = int(rep.get("n", 0)) + 1
+        ok_n = int(rep.get("ok", 0)) + (1 if receipt["ok"] else 0)
+        fail_n = int(rep.get("fail", 0)) + (0 if receipt["ok"] else 1)
+        prev_lat = float(rep.get("avg_latency_ms", 420.0))
+        lat = float(latency_ms or prev_lat)
+        avg_lat = (prev_lat * (n - 1) + lat) / n if n else lat
+        ok_rate = ok_n / n if n else 0.99
+        # score: ok_rate heavy + latency term
+        lat_term = max(0.0, min(1.0, 1.0 - (avg_lat / 5000.0)))
+        score = max(0.05, min(0.999, ok_rate * 0.75 + lat_term * 0.25))
+        # slash harder on fail
+        if not receipt["ok"]:
+            score = max(0.05, score * 0.92)
+        rep.update(
+            {
+                "score": round(score, 4),
+                "n": n,
+                "ok": ok_n,
+                "fail": fail_n,
+                "ok_rate": round(ok_rate, 4),
+                "avg_latency_ms": round(avg_lat, 1),
+                "updated_at": now,
+            }
+        )
     return {
         "ok": True,
         "receipt": receipt,
@@ -760,11 +804,10 @@ def attest(
 
 
 def record_crawl(url: str, ok: bool, note: str = "") -> None:
-    store = _load_store()
-    crawl = store.setdefault("crawl", [])
-    crawl.append({"ts": _now_ms(), "url": url[:300], "ok": ok, "note": note[:200]})
-    store["crawl"] = crawl[-500:]
-    _save_store(store)
+    with _store_txn() as store:
+        crawl = store.setdefault("crawl", [])
+        crawl.append({"ts": _now_ms(), "url": url[:300], "ok": ok, "note": note[:200]})
+        store["crawl"] = crawl[-500:]
 
 
 def crawl_well_known(urls: list[str] | None = None) -> dict[str, Any]:
