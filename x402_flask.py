@@ -719,9 +719,28 @@ def _facilitator(path: str, payment_payload: dict, requirements: dict) -> dict:
             else:
                 data["invalidReason"] = f"facilitator {r.status_code}: {json.dumps(data)[:200]}"
         if failed:
+            # A bare reason code is not enough to debug with. `invalid_payload`
+            # is CDP's catch-all for a payload that failed schema/oneOf matching
+            # and says nothing about WHICH field is wrong, while CDP often
+            # returns per-field detail alongside it. Log the full response and
+            # the exact request body so the failure can be diagnosed from facts
+            # instead of guesswork.
+            #
+            # The payer signature is a bearer instrument - anyone holding it can
+            # submit the transfer - so it is redacted before it reaches the logs.
+            try:
+                safe = json.loads(json.dumps(body))
+                sig = safe.get("paymentPayload", {}).get("payload", {}).get("signature")
+                if sig:
+                    safe["paymentPayload"]["payload"]["signature"] = f"<redacted {len(sig)} chars>"
+            except Exception:
+                safe = {"<unserializable>": True}
             logger.error(
-                "[x402] facilitator %s failed: HTTP %s reason=%s",
+                "[x402] facilitator %s failed: HTTP %s reason=%s\n"
+                "[x402]   cdp_response=%s\n"
+                "[x402]   sent_body=%s",
                 path, r.status_code, data.get("invalidReason"),
+                json.dumps(data)[:1500], json.dumps(safe)[:1800],
             )
     return data
 
