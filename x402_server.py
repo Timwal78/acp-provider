@@ -305,8 +305,38 @@ def _beacon_storage_report(blockers: list) -> dict:
     path = _os.environ.get("BEACON_STORE", "/tmp/sml_beacon_store.json")
     parent = _Path(path).parent
     ephemeral = str(path).startswith("/tmp")
-    mount_present = parent.is_dir()
-    writable = bool(mount_present and _os.access(parent, _os.W_OK))
+    dir_present = parent.is_dir()
+    writable = bool(dir_present and _os.access(parent, _os.W_OK))
+
+    # "The directory exists and is writable" is NOT evidence of durability.
+    # _load_store() calls mkdir(parents=True), so any typo'd path becomes a
+    # real writable directory on the ephemeral container root. A mis-cased
+    # /VAR/DATA (Linux paths are case-sensitive) passed an exists+writable
+    # check while storing nothing durably. Confirm the path actually resolves
+    # onto a mounted volume by consulting /proc/mounts.
+    mounts = set()
+    try:
+        with open("/proc/mounts", "r") as fh:
+            for line in fh:
+                parts = line.split()
+                if len(parts) > 1:
+                    mounts.add(parts[1])
+    except Exception:
+        mounts = set()
+
+    resolved = str(parent.resolve()) if dir_present else str(parent)
+    on_mount = None
+    if mounts:
+        candidate = resolved
+        while True:
+            if candidate in mounts and candidate not in ("/", ""):
+                on_mount = candidate
+                break
+            if candidate in ("/", ""):
+                break
+            candidate = _os.path.dirname(candidate) or "/"
+
+    durable = (not ephemeral) and writable and bool(on_mount)
 
     if ephemeral:
         blockers.append(
@@ -315,13 +345,21 @@ def _beacon_storage_report(blockers: list) -> dict:
         )
     elif not writable:
         blockers.append(f"BEACON_STORE={path} is not writable - attestations cannot persist")
+    elif not on_mount:
+        blockers.append(
+            f"BEACON_STORE={path} is writable but sits on the container root, not a "
+            "mounted disk (check for a typo or wrong case in the path) - attestations "
+            "are silently wiped on every deploy"
+        )
 
     report = {
         "path": path,
-        "durable": (not ephemeral) and writable,
+        "durable": durable,
         "ephemeral_tmp": ephemeral,
-        "mount_present": mount_present,
+        "dir_present": dir_present,
         "writable": writable,
+        "on_mounted_volume": bool(on_mount),
+        "mount_point": on_mount,
         "file_exists": _Path(path).exists(),
     }
     try:
