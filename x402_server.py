@@ -288,6 +288,53 @@ def favicon():
 def health():
     return jsonify({"ok": True, "service": "acp-x402", "status": "healthy", "version": "1.0.0"}), 200
 
+
+@app.route("/x402/readiness", methods=["GET"])
+def x402_readiness():
+    """Settlement readiness report. Booleans and non-secret hosts only.
+
+    Exists so Bazaar/facilitator configuration can be verified from outside the
+    host without reading environment variables. Never returns key material:
+    CDP credentials are reported as a presence boolean, never echoed.
+    """
+    try:
+        import x402_flask as xf
+
+        facilitator = getattr(xf, "FACILITATOR", "") or ""
+        cdp_configured = bool(getattr(xf, "_CDP_CONFIGURED", False))
+        network = getattr(xf, "NETWORK", "") or ""
+        pay_to = getattr(xf, "PAY_TO", "") or ""
+        is_mainnet = "sepolia" not in network.lower() and network != ""
+
+        blockers = []
+        if not cdp_configured:
+            blockers.append(
+                "CDP_API_KEY_ID / CDP_API_KEY_SECRET not set - falling back to the "
+                "public facilitator, so settlements are not indexed by Coinbase Bazaar"
+            )
+        if not pay_to:
+            blockers.append("X402_PAY_TO not set")
+        if not is_mainnet:
+            blockers.append(f"network '{network}' is a testnet - Bazaar indexes mainnet settlements")
+
+        return jsonify(
+            {
+                "ok": True,
+                "service": "acp-x402",
+                "x402Version": getattr(xf, "X402_VERSION", None),
+                "facilitator": facilitator,
+                "facilitator_is_cdp": "cdp.coinbase.com" in facilitator,
+                "cdp_credentials_present": cdp_configured,
+                "network": network,
+                "mainnet": is_mainnet,
+                "pay_to": pay_to,
+                "bazaar_ready": cdp_configured and is_mainnet and bool(pay_to),
+                "blockers": blockers,
+            }
+        ), 200
+    except Exception as exc:  # pragma: no cover - diagnostics must never 500
+        return jsonify({"ok": False, "error": type(exc).__name__}), 200
+
 @app.route("/docs", methods=["GET"])
 def docs_redirect():
     from flask import redirect
