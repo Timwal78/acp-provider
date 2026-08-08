@@ -245,7 +245,8 @@ def marketplace_list():
     """
     POST /marketplace/list
     First call (no X-Payment-Proof) → 402 challenge.
-    Second call (with X-Payment-Proof header) → store listing, return 200.
+    Second call (X-Payment-Proof = confirmed Base tx hash paying the 0.05 USDC
+    listing fee to _PAY_TO) → verified on-chain, store listing, return 200.
     """
     global _listings, _last_updated
 
@@ -259,7 +260,26 @@ def marketplace_list():
         resp.headers["X-402-Network"] = "eip155:8453"
         return resp
 
-    # Payment proof provided — accept and store listing
+    # Verify the payment actually happened on-chain before accepting a free-form
+    # listing. Previously this only checked the header was non-empty — any
+    # string at all (even "x") satisfied `if not payment_proof`, so the
+    # advertised "0.05 USDC to list" fee was never actually collected or
+    # checked. _LIST_CHALLENGE's shape (bare {network, asset, amount, payTo})
+    # matches _verify_base_usdc_tx's raw on-chain-tx-hash verification, the
+    # same already-replay-protected function the sovereign rail in
+    # x402_flask.py uses for real Base USDC payments — reused here rather
+    # than re-derived.
+    try:
+        from x402_flask import _verify_base_usdc_tx
+        list_min_units = int(_LIST_CHALLENGE["accepts"][0]["amount"])
+        verify = _verify_base_usdc_tx(payment_proof, _PAY_TO, list_min_units)
+    except Exception as e:
+        log.error("vendos: payment verification import/call failed: %s", e)
+        return jsonify({"error": "payment_verification_unavailable", "detail": str(e)}), 503
+    if not verify.get("ok"):
+        return jsonify({"error": "invalid_payment_proof", "reason": verify.get("error")}), 402
+
+    # Payment verified on-chain — accept and store listing
     body = request.get_json(silent=True) or {}
     name = (body.get("name") or "").strip()
     base_url = (body.get("base_url") or "").strip()
