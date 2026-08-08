@@ -21,6 +21,7 @@ from flask import Flask, jsonify, request
 
 from provider import ENDPOINTS as PROVIDER_ENDPOINTS
 from catalog_extra import EXTRA_PRICES_USD
+from bt_api import BACKTEST_PRICES_USD
 from x402_flask import x402_guard, register_x402_discovery
 
 app = Flask(__name__)
@@ -94,6 +95,7 @@ _PRICES_USD = {
     "crypto_penny_squeeze_scanner": "0.001",
     # --- Catalog extras ---
     **EXTRA_PRICES_USD,
+    **BACKTEST_PRICES_USD,
 }
 
 assert set(_PRICES_USD) == set(PROVIDER_ENDPOINTS), \
@@ -119,6 +121,21 @@ def _coerce_params(raw: dict) -> dict:
 
 
 _KNOWN_QUERY_PARAMS = {
+    "backtest_run": {
+        "venue": "coinbase | kraken | yahoo", "symbol": "e.g. BTC-USD or SPY",
+        "interval": "1m 5m 15m 30m 1h 6h 1d", "days": "lookback in days",
+        "strategy": "buy_hold | ma_cross | ema_cross | breakout | rsi_reversion",
+        "fee_bps": "round-trip fee in basis points", "slippage_bps": "slippage in bps",
+        "allow_short": "true | false",
+    },
+    "backtest_sweep": {
+        "venue": "coinbase | kraken | yahoo", "symbol": "e.g. BTC-USD",
+        "interval": "1m 5m 15m 30m 1h 6h 1d", "days": "lookback in days",
+        "strategy": "ma_cross | ema_cross | breakout | rsi_reversion",
+        "fast": "comma-separated values, e.g. 8,12,24",
+        "slow": "comma-separated values, e.g. 96,144,336",
+    },
+    "backtest_strategies": {},
     "crypto_price": {"ids": {"type": "string", "description": "CoinGecko ids csv", "example": "bitcoin,ethereum"}, "vs": {"type": "string", "example": "usd", "default": "usd"}},
     "fx_rate": {"base": {"type": "string", "example": "USD", "default": "USD"}, "symbols": {"type": "string", "example": "EUR,GBP"}},
     "gas_tracker": {"chain": {"type": "string", "example": "ethereum"}},
@@ -224,7 +241,26 @@ def _make_view(name: str, fn, price_usd: str):
         query_params=_KNOWN_QUERY_PARAMS.get(name),
     )
     def _view():
-        return jsonify(fn(_coerce_params(request.args.to_dict())))
+        # A caller has already paid by the time this runs. Answering with a
+        # bare HTTP 500 and an empty body is the worst possible outcome: they
+        # are charged and told nothing. Map failures to a status that says
+        # whose fault it is, and always return a JSON body naming the cause.
+        try:
+            return jsonify(fn(_coerce_params(request.args.to_dict())))
+        except ValueError as e:
+            return jsonify({"ok": False, "error": "ERR_BAD_REQUEST",
+                            "endpoint": name, "message": str(e)}), 400
+        except LookupError as e:
+            return jsonify({"ok": False, "error": "ERR_NOT_FOUND",
+                            "endpoint": name, "message": str(e)}), 404
+        except NotImplementedError as e:
+            return jsonify({"ok": False, "error": "ERR_UNSUPPORTED",
+                            "endpoint": name, "message": str(e)}), 501
+        except Exception as e:
+            app.logger.exception("endpoint %s failed", name)
+            return jsonify({"ok": False, "error": "ERR_UPSTREAM",
+                            "endpoint": name,
+                            "message": f"{type(e).__name__}: {e}"}), 502
     _view.__name__ = f"x402_{name}"
     return _view
 
