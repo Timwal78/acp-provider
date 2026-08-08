@@ -920,11 +920,20 @@ def get_valuation(params: dict[str, Any] | None = None) -> dict[str, Any]:
                     "tags": ["discovery"],
                     "notes": "Uncurated discovery valuation",
                 }
+                # Nest valuation/risk inside `asset`, matching build_asset_snapshot's
+                # shape for the curated-registry path below. Every downstream caller
+                # (get_risk, get_proof_of_reserves, aggregates, get_valuation_with_history)
+                # reads asset.get("valuation")/asset.get("risk") — leaving them only at
+                # the top level here silently returned None for any discovery-only asset.
+                valuation = _valuation(snap, p, None)
+                risk = _risk_score(snap, p, None)
+                snap["valuation"] = valuation
+                snap["risk"] = risk
                 return {
                     "timestamp": _now(),
                     "asset": snap,
-                    "valuation": _valuation(snap, p, None),
-                    "risk": _risk_score(snap, p, None),
+                    "valuation": valuation,
+                    "risk": risk,
                     "engine": "scriptmasterlabs_rwa_v2",
                 }
         return {"error": "not_found", "id": asset_id, "known_ids": [r["id"] for r in RWA_REGISTRY]}
