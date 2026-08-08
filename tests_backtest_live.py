@@ -26,9 +26,9 @@ def chk(name, cond, detail=""):
 
 days = 20
 b = feeds.fetch("kraken", "XXBTZUSD", "1h", now - days * 86400, now)
-chk("kraken returns exactly one bar per hour", len(b) == days * 24, f"{len(b)} != {days*24}")
-chk("kraken respects its 720-bar cap", len(feeds.fetch(
-    "kraken", "XXBTZUSD", "1h", now - 60 * 86400, now)) <= 720)
+chk("kraken returns one closed bar per hour", abs(len(b) - days * 24) <= 1, f"{len(b)} vs {days*24}")
+chk("kraken caps at 721 (720 closed + 1 forming, which we drop)",
+    len(feeds.fetch("kraken", "XXBTZUSD", "1h", now - 60 * 86400, now)) <= 720)
 
 b = feeds.fetch("coinbase", "ETH-USD", "1h", now - 14 * 86400, now)
 chk("coinbase paginates past the 300-bar per-request cap", len(b) > 300, f"{len(b)} bars")
@@ -54,6 +54,11 @@ try:
     print("  NOTE  stooq answered from this IP (it does not always)")
 except RuntimeError as e:
     chk("stooq failure names the real cause", "blocking this IP" in str(e))
+
+nowbar = feeds.fetch("coinbase", "BTC-USD", "1h", now - 6 * 3600, now)
+chk("no unfinished bar is returned",
+    all(b[0] + 3600 <= time.time() for b in nowbar),
+    "a still-forming candle leaked through")
 
 print()
 if FAILS:

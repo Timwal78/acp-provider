@@ -102,8 +102,9 @@ def coinbase(symbol: str, interval: str, start: int, end: int, pace: float = 0.2
 
 
 def kraken(pair: str, interval: str, start: int, end: int):
-    """Kraken OHLC. Returns at most 720 recent bars per pair -- fine for recent
-    windows, not a deep-history source."""
+    """Kraken OHLC. Measured cap is 721 bars, not 720: 720 closed candles plus
+    the one currently forming. Fine for recent windows, not a deep-history
+    source -- a 120-day hourly request still comes back spanning 30 days."""
     mins = {"1m": 1, "5m": 5, "15m": 15, "1h": 60, "6h": 360, "1d": 1440}.get(interval)
     if not mins:
         raise ValueError(f"kraken: unsupported interval {interval}")
@@ -179,11 +180,27 @@ def stooq(symbol: str, start: int, end: int):
 
 VENUES = {"coinbase": coinbase, "kraken": kraken, "yahoo": yahoo, "stooq": stooq}
 
+INTERVAL_SECONDS = {"1m": 60, "5m": 300, "15m": 900, "30m": 1800,
+                    "1h": 3600, "6h": 21600, "1d": 86400}
 
-def fetch(venue: str, symbol: str, interval: str, start: int, end: int):
+
+def fetch(venue: str, symbol: str, interval: str, start: int, end: int,
+          drop_forming: bool = True):
+    """Fetch bars, dropping the candle that has not finished yet.
+
+    Every venue happily returns the bar currently in progress when the range
+    ends at now -- Kraken's cap is 721 for exactly this reason (720 closed + 1
+    forming). That bar's high, low and close all still move. Backtesting over
+    it means the last data point changes between runs, which breaks
+    reproducibility and lets a strategy act on a close that had not happened.
+    """
     fn = VENUES.get(venue)
     if not fn:
         raise ValueError(f"unknown venue {venue}; have {sorted(VENUES)}")
-    if venue == "stooq":
-        return fn(symbol, start, end)
-    return fn(symbol, interval, start, end)
+    bars = fn(symbol, start, end) if venue == "stooq" else fn(symbol, interval, start, end)
+    if drop_forming and bars:
+        step = INTERVAL_SECONDS.get(interval)
+        if step:
+            cutoff = time.time()
+            bars = [b for b in bars if b[0] + step <= cutoff]
+    return bars
