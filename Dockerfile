@@ -29,6 +29,12 @@ COPY beacon.py .
 COPY vendos_bp.py .
 COPY rwa_engine.py .
 COPY catalog_extra.py .
+COPY bt_api.py .
+# bt/ is a package directory, not a single module. This Dockerfile copies
+# sources file-by-file, so anything not listed here simply is not in the
+# image -- which is how the backtest endpoints passed every local test and
+# then failed to boot with ModuleNotFoundError: No module named 'bt_api'.
+COPY bt/ ./bt/
 COPY a2a_broadcast.py .
 COPY requirements-x402.txt .
 
