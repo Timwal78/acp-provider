@@ -196,21 +196,42 @@ def _load_endpoints() -> list[str]:
         return sorted(_load_prices().keys())
 
 
+# Cold-start priors. These are NOT measurements. They are only emitted when a tool
+# has zero recorded attestations, and are always labelled as such via "basis":
+# "cold_start_prior" so a consuming agent can discount them instead of mistaking
+# them for observed performance.
+_PRIOR_SCORE = 0.92
+_PRIOR_LATENCY_MS = 420.0
+_PRIOR_OK_RATE = 0.99
+
+
 def reputation_for(tool: str) -> dict[str, Any]:
     store = _load_store()
     rep = (store.get("reputation") or {}).get(tool) or {}
-    score = float(rep.get("score", 0.92))
     n = int(rep.get("n", 0))
-    avg_lat = float(rep.get("avg_latency_ms", 420.0))
-    ok_rate = float(rep.get("ok_rate", 0.99))
-    return {
+    measured = n > 0
+
+    score = float(rep.get("score", _PRIOR_SCORE))
+    avg_lat = float(rep.get("avg_latency_ms", _PRIOR_LATENCY_MS))
+    ok_rate = float(rep.get("ok_rate", _PRIOR_OK_RATE))
+
+    out: dict[str, Any] = {
         "tool": tool,
         "score": round(score, 4),
         "attestations": n,
         "avg_latency_ms": round(avg_lat, 1),
         "ok_rate": round(ok_rate, 4),
         "source": "beacon_peer_attest_v1",
+        # Honesty flags: distinguish observed performance from cold-start defaults.
+        "measured": measured,
+        "basis": "observed" if measured else "cold_start_prior",
     }
+    if not measured:
+        out["disclaimer"] = (
+            "No attestations recorded yet. score, ok_rate and avg_latency_ms are "
+            "published cold-start priors, not measured values."
+        )
+    return out
 
 
 def build_capability(tool: str, base: str, price: str) -> dict[str, Any]:
