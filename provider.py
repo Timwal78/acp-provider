@@ -3210,3 +3210,11 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# --- Backtest engine endpoints -------------------------------------------
+# Imported without a try/except on purpose. bt/ is stdlib-only, so an
+# ImportError here means the deploy is genuinely broken and should fail at
+# boot rather than quietly serving a catalog that is missing paid routes.
+from bt_api import BACKTEST_ENDPOINTS  # noqa: E402
+
+ENDPOINTS.update(BACKTEST_ENDPOINTS)
