@@ -36,9 +36,19 @@ services:
     dockerfilePath: ./Dockerfile
     autoDeploy: true
     dockerCommand: python3 -m gunicorn x402_server:app --bind 0.0.0.0:$$PORT --workers 2 --timeout 120
+    # Beacon attestations and settlement records are the reputation ledger.
+    # They defaulted to /tmp, which Render wipes on every deploy and restart,
+    # so the beacon could never leave cold_start_prior no matter how many real
+    # payments cleared. A persistent disk makes that history durable.
+    disk:
+      name: beacon-data
+      mountPath: /var/data
+      sizeGB: 1
     envVars:
       - key: PYTHONUNBUFFERED
         value: "1"
+      - key: BEACON_STORE
+        value: "/var/data/sml_beacon_store.json"
       - key: X402_PAY_TO
         value: "0x72330994f379a71542e7bd5a4cf99a9d9743f4aa"
       - key: X402_NETWORK
