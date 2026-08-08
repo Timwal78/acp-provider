@@ -626,6 +626,38 @@ def _402(requirements: dict, reason: str = "payment_required", query_params: dic
     return resp
 
 
+def _normalize_v2_payload(payload: dict, requirements: dict) -> dict:
+    """Coerce a client's X-PAYMENT payload into CDP's x402V2PaymentPayload shape.
+
+    CDP requires `accepted` (the full payment requirements) and does NOT accept
+    top-level `scheme`/`network` - in v2 those live inside `accepted`. Clients
+    that send the v1-style flat shape are rejected at schema validation with
+    "'paymentPayload' is invalid ... x402V2PaymentPayload requires 'accepted'",
+    which happens BEFORE any signature or balance check. A fully funded payer
+    fails identically to an empty one.
+
+    The resource server already knows the requirements it is charging against,
+    so fill them in rather than making every client get the shape exactly right.
+    Payloads that already carry `accepted` are left untouched.
+
+    Reusing `requirements` verbatim is safe: the same dict is already sent as
+    `paymentRequirements` on every call and CDP validates it without complaint.
+    """
+    try:
+        version = int(payload.get("x402Version", X402_VERSION))
+    except (TypeError, ValueError):
+        return payload
+    if version != 2:
+        return payload
+
+    out = dict(payload)
+    if not isinstance(out.get("accepted"), dict):
+        out["accepted"] = dict(requirements)
+    out.pop("scheme", None)
+    out.pop("network", None)
+    return out
+
+
 def _facilitator(path: str, payment_payload: dict, requirements: dict) -> dict:
     # The CDP JWT 'uri' claim must match the FULL request path, not just the
     # trailing route. FACILITATOR carries a path prefix
@@ -898,6 +930,7 @@ def x402_guard(price_usdc: str, description: str, discoverable: bool = True, pat
             except Exception:
                 return _402(reqs, "malformed X-PAYMENT header", query_params=query_params)
 
+            payment_payload = _normalize_v2_payload(payment_payload, reqs)
             verify = _facilitator("/verify", payment_payload, reqs)
             if not verify.get("isValid", False):
                 return _402(reqs, f"invalid payment: {verify.get('invalidReason', 'unknown')}", query_params=query_params)
